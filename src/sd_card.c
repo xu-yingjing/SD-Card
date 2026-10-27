@@ -144,12 +144,8 @@
 #define SD_CSD_WRITE_BL_LEN_WIDTH      (4U)
 #define SD_CSD_WRITE_BL_LEN_512B       (9U)
 
-static sd_card_status_t sd_card_init_object(sd_card_t *card)
+static void sd_card_init_object(sd_card_t *card)
 {
-    if (card == NULL) {
-        return SD_CARD_ERROR;
-    }
-
     card->state = SD_CARD_STATE_NO_CARD;
     card->ocr = 0U;
     card->cid[0] = 0U;
@@ -164,25 +160,23 @@ static sd_card_status_t sd_card_init_object(sd_card_t *card)
     card->block_count = 0U;
     card->block_size = 0U;
     card->max_clock_frequency = 0U;
-
-    return SD_CARD_OK;
 }
 
-static sd_card_status_t sd_card_go_idle_state(const sd_card_host_t *host)
+static sd_card_status_t sd_card_go_idle_state(const sd_card_t *card)
 {
     sd_card_host_cmd_t cmd;
 
     cmd.index = SD_CMD0_GO_IDLE_STATE;
     cmd.argument = 0U;
     cmd.response_type = SD_CARD_HOST_RESPONSE_NONE;
-    if (sd_card_host_send_cmd(host, &cmd) != SD_CARD_HOST_OK) {
+    if (card->ops->send_cmd(&cmd) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 
     return SD_CARD_OK;
 }
 
-static sd_card_status_t sd_card_send_if_cond(const sd_card_host_t *host,
+static sd_card_status_t sd_card_send_if_cond(const sd_card_t *card,
                                              uint32_t argument,
                                              uint32_t *response)
 {
@@ -191,7 +185,7 @@ static sd_card_status_t sd_card_send_if_cond(const sd_card_host_t *host,
     cmd.index = SD_CMD8_SEND_IF_COND;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
-    if (sd_card_host_send_cmd(host, &cmd) != SD_CARD_HOST_OK) {
+    if (card->ops->send_cmd(&cmd) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 
@@ -202,7 +196,7 @@ static sd_card_status_t sd_card_send_if_cond(const sd_card_host_t *host,
     return SD_CARD_OK;
 }
 
-static sd_card_status_t sd_card_send_app_cmd(const sd_card_host_t *host,
+static sd_card_status_t sd_card_send_app_cmd(const sd_card_t *card,
                                              uint32_t argument)
 {
     sd_card_host_cmd_t cmd;
@@ -210,14 +204,14 @@ static sd_card_status_t sd_card_send_app_cmd(const sd_card_host_t *host,
     cmd.index = SD_CMD55_APP_CMD;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
-    if (sd_card_host_send_cmd(host, &cmd) != SD_CARD_HOST_OK) {
+    if (card->ops->send_cmd(&cmd) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 
     return SD_CARD_OK;
 }
 
-static sd_card_status_t sd_card_send_op_cond(const sd_card_host_t *host,
+static sd_card_status_t sd_card_send_op_cond(const sd_card_t *card,
                                              uint32_t argument,
                                              uint32_t *response)
 {
@@ -226,7 +220,7 @@ static sd_card_status_t sd_card_send_op_cond(const sd_card_host_t *host,
     cmd.index = SD_ACMD41_SD_SEND_OP_COND;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT_NO_CRC;
-    if (sd_card_host_send_cmd(host, &cmd) != SD_CARD_HOST_OK) {
+    if (card->ops->send_cmd(&cmd) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 
@@ -237,7 +231,7 @@ static sd_card_status_t sd_card_send_op_cond(const sd_card_host_t *host,
     return SD_CARD_OK;
 }
 
-static sd_card_status_t sd_card_send_all_send_cid(const sd_card_host_t *host,
+static sd_card_status_t sd_card_send_all_send_cid(const sd_card_t *card,
                                                   uint32_t *response)
 {
     sd_card_host_cmd_t cmd;
@@ -245,7 +239,7 @@ static sd_card_status_t sd_card_send_all_send_cid(const sd_card_host_t *host,
     cmd.index = SD_CMD2_ALL_SEND_CID;
     cmd.argument = 0U;
     cmd.response_type = SD_CARD_HOST_RESPONSE_LONG;
-    if (sd_card_host_send_cmd(host, &cmd) != SD_CARD_HOST_OK) {
+    if (card->ops->send_cmd(&cmd) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 
@@ -259,7 +253,7 @@ static sd_card_status_t sd_card_send_all_send_cid(const sd_card_host_t *host,
     return SD_CARD_OK;
 }
 
-static sd_card_status_t sd_card_send_relative_addr(const sd_card_host_t *host,
+static sd_card_status_t sd_card_send_relative_addr(const sd_card_t *card,
                                                    uint32_t *response)
 {
     sd_card_host_cmd_t cmd;
@@ -267,7 +261,7 @@ static sd_card_status_t sd_card_send_relative_addr(const sd_card_host_t *host,
     cmd.index = SD_CMD3_SEND_RELATIVE_ADDR;
     cmd.argument = 0U;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
-    if (sd_card_host_send_cmd(host, &cmd) != SD_CARD_HOST_OK) {
+    if (card->ops->send_cmd(&cmd) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 
@@ -278,7 +272,7 @@ static sd_card_status_t sd_card_send_relative_addr(const sd_card_host_t *host,
     return SD_CARD_OK;
 }
 
-static sd_card_status_t sd_card_send_csd(const sd_card_host_t *host,
+static sd_card_status_t sd_card_send_csd(const sd_card_t *card,
                                          uint32_t argument,
                                          uint32_t *response)
 {
@@ -287,7 +281,7 @@ static sd_card_status_t sd_card_send_csd(const sd_card_host_t *host,
     cmd.index = SD_CMD9_SEND_CSD;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_LONG;
-    if (sd_card_host_send_cmd(host, &cmd) != SD_CARD_HOST_OK) {
+    if (card->ops->send_cmd(&cmd) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 
@@ -301,7 +295,7 @@ static sd_card_status_t sd_card_send_csd(const sd_card_host_t *host,
     return SD_CARD_OK;
 }
 
-static sd_card_status_t sd_card_select_card(const sd_card_host_t *host,
+static sd_card_status_t sd_card_select_card(const sd_card_t *card,
                                             uint32_t argument)
 {
     sd_card_host_cmd_t cmd;
@@ -309,14 +303,14 @@ static sd_card_status_t sd_card_select_card(const sd_card_host_t *host,
     cmd.index = SD_CMD7_SELECT_CARD;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
-    if (sd_card_host_send_cmd(host, &cmd) != SD_CARD_HOST_OK) {
+    if (card->ops->send_cmd(&cmd) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 
     return SD_CARD_OK;
 }
 
-static sd_card_status_t sd_card_set_bus_width(const sd_card_host_t *host,
+static sd_card_status_t sd_card_set_bus_width(const sd_card_t *card,
                                               uint32_t argument)
 {
     sd_card_host_cmd_t cmd;
@@ -324,14 +318,14 @@ static sd_card_status_t sd_card_set_bus_width(const sd_card_host_t *host,
     cmd.index = SD_ACMD6_SET_BUS_WIDTH;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
-    if (sd_card_host_send_cmd(host, &cmd) != SD_CARD_HOST_OK) {
+    if (card->ops->send_cmd(&cmd) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 
     return SD_CARD_OK;
 }
 
-static sd_card_status_t sd_card_send_status(const sd_card_host_t *host,
+static sd_card_status_t sd_card_send_status(const sd_card_t *card,
                                             uint32_t argument,
                                             uint32_t *response)
 {
@@ -340,7 +334,7 @@ static sd_card_status_t sd_card_send_status(const sd_card_host_t *host,
     cmd.index = SD_CMD13_SEND_STATUS;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
-    if (sd_card_host_send_cmd(host, &cmd) != SD_CARD_HOST_OK) {
+    if (card->ops->send_cmd(&cmd) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 
@@ -351,21 +345,21 @@ static sd_card_status_t sd_card_send_status(const sd_card_host_t *host,
     return SD_CARD_OK;
 }
 
-static sd_card_status_t sd_card_stop_transmission(const sd_card_host_t *host)
+static sd_card_status_t sd_card_stop_transmission(const sd_card_t *card)
 {
     sd_card_host_cmd_t cmd;
 
     cmd.index = SD_CMD12_STOP_TRANSMISSION;
     cmd.argument = 0U;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
-    if (sd_card_host_send_cmd(host, &cmd) != SD_CARD_HOST_OK) {
+    if (card->ops->send_cmd(&cmd) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 
     return SD_CARD_OK;
 }
 
-static sd_card_status_t sd_card_read_single_block(const sd_card_host_t *host,
+static sd_card_status_t sd_card_read_single_block(const sd_card_t *card,
                                                   uint32_t argument)
 {
     sd_card_host_cmd_t cmd;
@@ -373,14 +367,14 @@ static sd_card_status_t sd_card_read_single_block(const sd_card_host_t *host,
     cmd.index = SD_CMD17_READ_SINGLE_BLOCK;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
-    if (sd_card_host_send_cmd(host, &cmd) != SD_CARD_HOST_OK) {
+    if (card->ops->send_cmd(&cmd) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 
     return SD_CARD_OK;
 }
 
-static sd_card_status_t sd_card_read_multiple_block(const sd_card_host_t *host,
+static sd_card_status_t sd_card_read_multiple_block(const sd_card_t *card,
                                                     uint32_t argument)
 {
     sd_card_host_cmd_t cmd;
@@ -388,14 +382,14 @@ static sd_card_status_t sd_card_read_multiple_block(const sd_card_host_t *host,
     cmd.index = SD_CMD18_READ_MULTIPLE_BLOCK;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
-    if (sd_card_host_send_cmd(host, &cmd) != SD_CARD_HOST_OK) {
+    if (card->ops->send_cmd(&cmd) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 
     return SD_CARD_OK;
 }
 
-static sd_card_status_t sd_card_set_wr_blk_erase_count(const sd_card_host_t *host,
+static sd_card_status_t sd_card_set_wr_blk_erase_count(const sd_card_t *card,
                                                        uint32_t argument)
 {
     sd_card_host_cmd_t cmd;
@@ -403,14 +397,14 @@ static sd_card_status_t sd_card_set_wr_blk_erase_count(const sd_card_host_t *hos
     cmd.index = SD_ACMD23_SET_WR_BLK_ERASE_COUNT;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
-    if (sd_card_host_send_cmd(host, &cmd) != SD_CARD_HOST_OK) {
+    if (card->ops->send_cmd(&cmd) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 
     return SD_CARD_OK;
 }
 
-static sd_card_status_t sd_card_write_block(const sd_card_host_t *host,
+static sd_card_status_t sd_card_write_block(const sd_card_t *card,
                                             uint32_t argument)
 {
     sd_card_host_cmd_t cmd;
@@ -418,14 +412,14 @@ static sd_card_status_t sd_card_write_block(const sd_card_host_t *host,
     cmd.index = SD_CMD24_WRITE_BLOCK;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
-    if (sd_card_host_send_cmd(host, &cmd) != SD_CARD_HOST_OK) {
+    if (card->ops->send_cmd(&cmd) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 
     return SD_CARD_OK;
 }
 
-static sd_card_status_t sd_card_write_multiple_block(const sd_card_host_t *host,
+static sd_card_status_t sd_card_write_multiple_block(const sd_card_t *card,
                                                      uint32_t argument)
 {
     sd_card_host_cmd_t cmd;
@@ -433,14 +427,16 @@ static sd_card_status_t sd_card_write_multiple_block(const sd_card_host_t *host,
     cmd.index = SD_CMD25_WRITE_MULTIPLE_BLOCK;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
-    if (sd_card_host_send_cmd(host, &cmd) != SD_CARD_HOST_OK) {
+    if (card->ops->send_cmd(&cmd) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 
     return SD_CARD_OK;
 }
 
-static uint32_t sd_card_get_csd_field(const uint32_t *csd, uint8_t start_bit, uint8_t width)
+static uint32_t sd_card_get_csd_field(const uint32_t *csd,
+                                      uint8_t start_bit,
+                                      uint8_t width)
 {
     uint32_t mask;
     uint8_t low_index;
@@ -469,7 +465,8 @@ static uint32_t sd_card_get_csd_field(const uint32_t *csd, uint8_t start_bit, ui
     return value;
 }
 
-static sd_card_status_t sd_card_parse_csd(sd_card_t *card, const uint32_t *csd)
+static sd_card_status_t sd_card_parse_csd(sd_card_t *card,
+                                          const uint32_t *csd)
 {
     uint32_t csd_structure;
     uint32_t tran_speed;
@@ -479,7 +476,7 @@ static sd_card_status_t sd_card_parse_csd(sd_card_t *card, const uint32_t *csd)
 
     csd_structure = sd_card_get_csd_field(csd, SD_CSD_CSD_STRUCTURE_START_BIT, SD_CSD_CSD_STRUCTURE_WIDTH);
     if (csd_structure != SD_CSD_CSD_STRUCTURE_V2) {
-        return SD_CARD_UNSUPPORTED;
+        return SD_CARD_ERROR;
     }
 
     tran_speed = sd_card_get_csd_field(csd, SD_CSD_TRAN_SPEED_START_BIT, SD_CSD_TRAN_SPEED_WIDTH);
@@ -519,8 +516,7 @@ static sd_card_status_t sd_card_parse_csd(sd_card_t *card, const uint32_t *csd)
     return SD_CARD_OK;
 }
 
-static sd_card_status_t sd_card_wait_transfer_ready(const sd_card_t *card,
-                                                    const sd_card_host_t *host)
+static sd_card_status_t sd_card_wait_transfer_ready(const sd_card_t *card)
 {
     uint32_t argument;
     uint32_t response[1];
@@ -530,20 +526,16 @@ static sd_card_status_t sd_card_wait_transfer_ready(const sd_card_t *card,
     argument = ((((uint32_t)card->rca) << SD_CMD13_RCA_POS) & SD_CMD13_RCA_MASK) |
                 SD_CMD13_SEND_STATUS_CARD;
 
-    if (sd_card_host_get_tick_ms(host, &start_tick) != SD_CARD_HOST_OK) {
-        return SD_CARD_ERROR;
-    }
+    start_tick = card->ops->get_tick_ms();
 
     while (true) {
-        if (sd_card_host_get_tick_ms(host, &tick) != SD_CARD_HOST_OK) {
-            return SD_CARD_ERROR;
-        }
+        tick = card->ops->get_tick_ms();
 
         if ((tick - start_tick) >= SD_TRANSFER_READY_TIMEOUT_MS) {
             return SD_CARD_ERROR;
         }
 
-        if (sd_card_send_status(host, argument, response) != SD_CARD_OK) {
+        if (sd_card_send_status(card, argument, response) != SD_CARD_OK) {
             return SD_CARD_ERROR;
         }
 
@@ -556,30 +548,50 @@ static sd_card_status_t sd_card_wait_transfer_ready(const sd_card_t *card,
     return SD_CARD_OK;
 }
 
-sd_card_status_t sd_card_probe(sd_card_t *card,
-                               const sd_card_host_t *host)
+sd_card_status_t sd_card_init(sd_card_t *card,
+                              const sd_card_ops_t *ops)
+{
+    if ((card == NULL) ||
+        (ops == NULL) ||
+        ((ops->send_cmd == NULL) ||
+         (ops->set_bus_width == NULL) ||
+         (ops->set_clock_frequency == NULL) ||
+         (ops->abort_transfer == NULL) ||
+         (ops->prepare_read == NULL) ||
+         (ops->read == NULL) ||
+         (ops->write == NULL) ||
+         (ops->get_tick_ms == NULL))) {
+        return SD_CARD_ERROR;
+    }
+
+    sd_card_init_object(card);
+
+    card->ops = ops;
+
+    return SD_CARD_OK;
+}
+
+sd_card_status_t sd_card_probe(sd_card_t *card)
 {
     uint32_t response[4];
     uint32_t start_tick;
     uint32_t tick;
 
     if ((card == NULL) ||
-        (host == NULL)) {
+        (card->ops == NULL)) {
         return SD_CARD_ERROR;
     }
 
-    if (sd_card_init_object(card) != SD_CARD_OK) {
+    sd_card_init_object(card);
+
+    if (sd_card_go_idle_state(card) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 
-    if (sd_card_go_idle_state(host) != SD_CARD_OK) {
-        return SD_CARD_NO_CARD;
-    }
-
-    if (sd_card_send_if_cond(host,
+    if (sd_card_send_if_cond(card,
                              SD_CMD8_VHS_27_36 | SD_CMD8_CHECK_PATTERN,
                              response) != SD_CARD_OK) {
-        return SD_CARD_UNSUPPORTED;
+        return SD_CARD_ERROR;
     } else {
         if ((response[0] & (SD_CMD8_RESP0_VHS_MASK | SD_CMD8_RESP0_CHECK_PATTERN_MASK)) !=
             (SD_CMD8_RESP0_VHS_27_36 | SD_CMD8_RESP0_CHECK_PATTERN)) {
@@ -587,31 +599,27 @@ sd_card_status_t sd_card_probe(sd_card_t *card,
         }
     }
 
-    if (sd_card_host_get_tick_ms(host, &start_tick) != SD_CARD_HOST_OK) {
-        return SD_CARD_ERROR;
-    }
+    start_tick = card->ops->get_tick_ms();
 
     while (true) {
-        if (sd_card_host_get_tick_ms(host, &tick) != SD_CARD_HOST_OK) {
-            return SD_CARD_ERROR;
-        }
+        tick = card->ops->get_tick_ms();
 
         if ((tick - start_tick) >= SD_INITIALIZATION_TIMEOUT_MS) {
             return SD_CARD_ERROR;
         }
 
-        if (sd_card_send_app_cmd(host, 0U) != SD_CARD_OK) {
+        if (sd_card_send_app_cmd(card, 0U) != SD_CARD_OK) {
             return SD_CARD_ERROR;
         }
 
-        if (sd_card_send_op_cond(host,
+        if (sd_card_send_op_cond(card,
                                  SD_ACMD41_HCS_SDHC_SDXC | SD_ACMD41_XPC_POWER_SAVING | SD_ACMD41_S18R_USE_CURRENT_SIGNAL_VOLTAGE | SD_ACMD41_VOLTAGE_ALL,
                                  response) != SD_CARD_OK) {
             return SD_CARD_ERROR;
         } else {
             if ((response[0] & SD_ACMD41_RESP0_BUSY_MASK) == SD_ACMD41_RESP0_BUSY_INITIALIZATION_COMPLETE) {
                 if ((response[0] & SD_ACMD41_RESP0_CSS_MASK) != SD_ACMD41_RESP0_CSS_SDHC_SDXC) {
-                    return SD_CARD_UNSUPPORTED;
+                    return SD_CARD_ERROR;
                 }
 
                 card->ocr = response[0];
@@ -621,7 +629,7 @@ sd_card_status_t sd_card_probe(sd_card_t *card,
         }
     }
 
-    if (sd_card_send_all_send_cid(host, response) != SD_CARD_OK) {
+    if (sd_card_send_all_send_cid(card, response) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     } else {
         card->cid[0] = response[0];
@@ -630,13 +638,13 @@ sd_card_status_t sd_card_probe(sd_card_t *card,
         card->cid[3] = response[3];
     }
 
-    if (sd_card_send_relative_addr(host, response) != SD_CARD_OK) {
+    if (sd_card_send_relative_addr(card, response) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     } else {
         card->rca = (uint16_t)((response[0] & SD_CMD3_RCA_MASK) >> SD_CMD3_RCA_POS);
     }
 
-    if (sd_card_send_csd(host,
+    if (sd_card_send_csd(card,
                          (((uint32_t)card->rca) << SD_CMD9_RCA_POS) & SD_CMD9_RCA_MASK,
                          response) != SD_CARD_OK) {
         return SD_CARD_ERROR;
@@ -651,7 +659,7 @@ sd_card_status_t sd_card_probe(sd_card_t *card,
         card->csd[3] = response[3];
     }
 
-    if (sd_card_select_card(host,
+    if (sd_card_select_card(card,
                             (((uint32_t)card->rca) << SD_CMD7_RCA_POS) & SD_CMD7_RCA_MASK) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
@@ -667,22 +675,18 @@ sd_card_status_t sd_card_reset(sd_card_t *card)
         return SD_CARD_ERROR;
     }
 
-    if (sd_card_init_object(card) != SD_CARD_OK) {
-        return SD_CARD_ERROR;
-    }
+    sd_card_init_object(card);
 
     return SD_CARD_OK;
 }
 
 sd_card_status_t sd_card_config_bus_width(const sd_card_t *card,
-                                          const sd_card_host_t *host,
                                           sd_card_bus_width_t bus_width)
 {
     uint32_t argument;
     sd_card_host_bus_width_t host_bus_width;
 
     if ((card == NULL) ||
-        (host == NULL) ||
         (bus_width >= SD_CARD_BUS_WIDTH_COUNT)) {
         return SD_CARD_ERROR;
     }
@@ -708,16 +712,16 @@ sd_card_status_t sd_card_config_bus_width(const sd_card_t *card,
             break;
     }
 
-    if (sd_card_send_app_cmd(host,
+    if (sd_card_send_app_cmd(card,
                              (((uint32_t)card->rca) << SD_CMD55_RCA_POS) & SD_CMD55_RCA_MASK) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 
-    if (sd_card_set_bus_width(host, argument) != SD_CARD_OK) {
+    if (sd_card_set_bus_width(card, argument) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 
-    if (sd_card_host_set_bus_width(host, host_bus_width) != SD_CARD_HOST_OK) {
+    if (card->ops->set_bus_width(host_bus_width) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 
@@ -725,11 +729,9 @@ sd_card_status_t sd_card_config_bus_width(const sd_card_t *card,
 }
 
 sd_card_status_t sd_card_config_clock_frequency(const sd_card_t *card,
-                                                const sd_card_host_t *host,
                                                 uint32_t clock_frequency)
 {
     if ((card == NULL) ||
-        (host == NULL) ||
         (clock_frequency == 0U)) {
         return SD_CARD_ERROR;
     }
@@ -742,7 +744,7 @@ sd_card_status_t sd_card_config_clock_frequency(const sd_card_t *card,
         return SD_CARD_ERROR;
     }
 
-    if (sd_card_host_set_clock_frequency(host, clock_frequency) != SD_CARD_HOST_OK) {
+    if (card->ops->set_clock_frequency(clock_frequency) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 
@@ -798,7 +800,6 @@ uint32_t sd_card_get_max_clock_frequency(const sd_card_t *card)
 }
 
 sd_card_status_t sd_card_read_blocks(const sd_card_t *card,
-                                     const sd_card_host_t *host,
                                      uint8_t *buffer,
                                      uint32_t block_start,
                                      uint32_t block_count)
@@ -808,7 +809,6 @@ sd_card_status_t sd_card_read_blocks(const sd_card_t *card,
     bool is_multiple;
 
     if ((card == NULL) ||
-        (host == NULL) ||
         (buffer == NULL) ||
         (block_count == 0U)) {
         return SD_CARD_ERROR;
@@ -830,36 +830,36 @@ sd_card_status_t sd_card_read_blocks(const sd_card_t *card,
     size = block_count * SD_BLOCK_SIZE;
     is_multiple = (block_count > 1U) ? true : false;
 
-    if (sd_card_host_prepare_read(host, buffer, size) != SD_CARD_HOST_OK) {
+    if (card->ops->prepare_read(buffer, size) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 
     if (is_multiple != false) {
-        ret = sd_card_read_multiple_block(host, block_start);
+        ret = sd_card_read_multiple_block(card, block_start);
     } else {
-        ret = sd_card_read_single_block(host, block_start);
+        ret = sd_card_read_single_block(card, block_start);
     }
 
     if (ret != SD_CARD_OK) {
-        sd_card_host_abort_transfer(host);
+        card->ops->abort_transfer();
         return SD_CARD_ERROR;
     }
 
-    if (sd_card_host_read(host, buffer, size) != SD_CARD_HOST_OK) {
+    if (card->ops->read(buffer, size) != SD_CARD_OK) {
         ret = SD_CARD_ERROR;
     } else {
         ret = SD_CARD_OK;
     }
 
     if (is_multiple != false) {
-        if (sd_card_stop_transmission(host) != SD_CARD_OK) {
-            sd_card_host_abort_transfer(host);
+        if (sd_card_stop_transmission(card) != SD_CARD_OK) {
+            card->ops->abort_transfer();
             return SD_CARD_ERROR;
         }
     }
 
     if (ret != SD_CARD_OK) {
-        sd_card_host_abort_transfer(host);
+        card->ops->abort_transfer();
         return SD_CARD_ERROR;
     }
 
@@ -867,7 +867,6 @@ sd_card_status_t sd_card_read_blocks(const sd_card_t *card,
 }
 
 sd_card_status_t sd_card_write_blocks(const sd_card_t *card,
-                                      const sd_card_host_t *host,
                                       const uint8_t *buffer,
                                       uint32_t block_start,
                                       uint32_t block_count)
@@ -877,7 +876,6 @@ sd_card_status_t sd_card_write_blocks(const sd_card_t *card,
     bool is_multiple;
 
     if ((card == NULL) ||
-        (host == NULL) ||
         (buffer == NULL) ||
         (block_count == 0U)) {
         return SD_CARD_ERROR;
@@ -899,45 +897,45 @@ sd_card_status_t sd_card_write_blocks(const sd_card_t *card,
     size = block_count * SD_BLOCK_SIZE;
     is_multiple = (block_count > 1U) ? true : false;
 
-    if (sd_card_wait_transfer_ready(card, host) != SD_CARD_OK) {
+    if (sd_card_wait_transfer_ready(card) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 
     if (is_multiple != false) {
-        if (sd_card_send_app_cmd(host,
+        if (sd_card_send_app_cmd(card,
                                  (((uint32_t)card->rca) << SD_CMD55_RCA_POS) & SD_CMD55_RCA_MASK) == SD_CARD_OK) {
-            (void)sd_card_set_wr_blk_erase_count(host,
+            (void)sd_card_set_wr_blk_erase_count(card,
                                                  (block_count << SD_ACMD23_NUMBER_OF_BLOCKS_POS) & SD_ACMD23_NUMBER_OF_BLOCKS_MASK);
         }
-        ret = sd_card_write_multiple_block(host, block_start);
+        ret = sd_card_write_multiple_block(card, block_start);
     } else {
-        ret = sd_card_write_block(host, block_start);
+        ret = sd_card_write_block(card, block_start);
     }
 
     if (ret != SD_CARD_OK) {
-        sd_card_host_abort_transfer(host);
+        card->ops->abort_transfer();
         return SD_CARD_ERROR;
     }
 
-    if (sd_card_host_write(host, buffer, size) != SD_CARD_HOST_OK) {
+    if (card->ops->write(buffer, size) != SD_CARD_OK) {
         ret = SD_CARD_ERROR;
     } else {
         ret = SD_CARD_OK;
     }
 
     if (is_multiple != false) {
-        if (sd_card_stop_transmission(host) != SD_CARD_OK) {
-            sd_card_host_abort_transfer(host);
+        if (sd_card_stop_transmission(card) != SD_CARD_OK) {
+            card->ops->abort_transfer();
             return SD_CARD_ERROR;
         }
     }
 
     if (ret != SD_CARD_OK) {
-        sd_card_host_abort_transfer(host);
+        card->ops->abort_transfer();
         return SD_CARD_ERROR;
     }
 
-    if (sd_card_wait_transfer_ready(card, host) != SD_CARD_OK) {
+    if (sd_card_wait_transfer_ready(card) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
 

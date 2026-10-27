@@ -9,7 +9,7 @@ OUT=$(mktemp -d)
 trap 'rm -rf "$OUT"' EXIT
 CFLAGS="-std=c99 -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wundef -Wwrite-strings -Werror -I src"
 
-for source in src/sd_card.c src/sd_card_host.c examples/sd_card_host_template.c; do
+for source in src/sd_card.c examples/sd_card_host_template.c; do
     echo "compiling $source"
     "$CC" $CFLAGS -c "$source" -o "$OUT/$(basename "$source" .c).o"
 done
