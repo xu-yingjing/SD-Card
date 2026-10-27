@@ -15,7 +15,7 @@ typedef struct {
     /* Everything your controller needs to reach a card, kept next to the
        functions that use it: the clock feeding the SDIO block, the frequency
        currently at the card pins, the destination and length armed by
-       prepare_read(), and a millisecond counter. The ops table carries no
+       host_prepare_read(), and a millisecond counter. The ops table carries no
        context pointer, so this state lives in file scope. Add your register
        base address and DMA stream here when you fill the bodies in. */
     uint32_t input_clock_hz;
@@ -89,8 +89,9 @@ static sd_card_status_t example_prepare_read(uint8_t *buffer, uint32_t size)
 
 /* The only function expected to block. Returns when all size bytes have
    reached the card-side of the bus and into buffer, or with an error after
-   your own data timeout; the library calls abort_transfer() next either way.
-   On a DMA host this is the wait-on-completion half of prepare_read(). */
+   your own data timeout; the library calls host_abort_transfer() next either
+   way. On a DMA host this is the wait-on-completion half of
+   host_prepare_read(). */
 static sd_card_status_t example_read(uint8_t *buffer, uint32_t size)
 {
     (void)buffer;
@@ -120,13 +121,13 @@ static uint32_t example_get_tick_ms(void)
 }
 
 static const sd_card_ops_t example_ops = {
-    .send_cmd = example_send_cmd,
-    .set_bus_width = example_set_bus_width,
-    .set_clock_frequency = example_set_clock_frequency,
-    .abort_transfer = example_abort_transfer,
-    .prepare_read = example_prepare_read,
-    .read = example_read,
-    .write = example_write,
+    .host_send_cmd = example_send_cmd,
+    .host_set_bus_width = example_set_bus_width,
+    .host_set_clock_frequency = example_set_clock_frequency,
+    .host_abort_transfer = example_abort_transfer,
+    .host_prepare_read = example_prepare_read,
+    .host_read = example_read,
+    .host_write = example_write,
     .get_tick_ms = example_get_tick_ms,
 };
 

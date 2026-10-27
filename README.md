@@ -37,14 +37,14 @@ Not supported, by design:
 static sd_card_t card;
 
 static const sd_card_ops_t host_ops = {
-    .send_cmd            = my_send_cmd,
-    .set_bus_width       = my_set_bus_width,
-    .set_clock_frequency = my_set_clock_frequency,
-    .abort_transfer      = my_abort_transfer,
-    .prepare_read        = my_prepare_read,
-    .read                = my_read,
-    .write               = my_write,
-    .get_tick_ms         = my_get_tick_ms,
+    .host_send_cmd            = my_send_cmd,
+    .host_set_bus_width       = my_set_bus_width,
+    .host_set_clock_frequency = my_set_clock_frequency,
+    .host_abort_transfer      = my_abort_transfer,
+    .host_prepare_read        = my_prepare_read,
+    .host_read                = my_read,
+    .host_write               = my_write,
+    .get_tick_ms              = my_get_tick_ms,
 };
 
 /* Before probing: power the card, mux the pins, and start the host clock at
@@ -72,7 +72,7 @@ Every timeout loop in this library is a busy wait with no yield hook, issuing co
 
 ## Porting
 
-See [doc/porting.md](doc/porting.md) for the contract of each ops entry, including the two ordering rules that a naive host implementation gets wrong (`prepare_read` runs before the read command is issued; `read`/`write` return only after the data has reached or left the card), and the trap in `get_tick_ms` that a port is most likely to fall into. [examples/sd_card_host_template.c](examples/sd_card_host_template.c) is a non-functional skeleton with all eight signatures and the expectations as comments.
+See [doc/porting.md](doc/porting.md) for the contract of each ops entry, including the two ordering rules that a naive host implementation gets wrong (`host_prepare_read` runs before the read command is issued; `host_read`/`host_write` return only after the data has reached or left the card), and the trap in `get_tick_ms` that a port is most likely to fall into. [examples/sd_card_host_template.c](examples/sd_card_host_template.c) is a non-functional skeleton with all eight signatures and the expectations as comments.
 
 ## Size
 
@@ -93,7 +93,7 @@ There is no build system: drop `src/` into your project and add `sd_card.c`. To 
 
 ## Status
 
-0.2.0. The code is extracted from an in-tree component of a MH2457 (Cortex-M4) firmware, where it ran against real SDHC cards over a 4-bit SDIO host. No second host port exists yet, which is the main thing standing between this and a 1.0.0. [CHANGELOG.md](CHANGELOG.md) lists the known gaps.
+0.2.1. The code is extracted from an in-tree component of a MH2457 (Cortex-M4) firmware, where it ran against real SDHC cards over a 4-bit SDIO host. No second host port exists yet, which is the main thing standing between this and a 1.0.0. [CHANGELOG.md](CHANGELOG.md) lists the known gaps.
 
 ## License
 

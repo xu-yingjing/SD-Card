@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1
+
+Names only. The protocol layer behaves exactly as it did in 0.2.0, so a port written against 0.2.0 recompiles after one change: renaming its table initializers.
+
+- Seven entries of `sd_card_ops_t` gain a `host_` prefix: `host_send_cmd`, `host_set_bus_width`, `host_set_clock_frequency`, `host_abort_transfer`, `host_prepare_read`, `host_read` and `host_write`. The types they traffic in were already `sd_card_host_cmd_t` and `sd_card_host_bus_width_t`; the entries now match them, and `sd_card_init()` still rejects a table with any NULL entry.
+- `get_tick_ms` stays unprefixed on purpose. It is a time source rather than something the SDIO host does, so it does not belong to that subdomain.
+- `examples/sd_card_host_template.c`, `doc/porting.md` and the README quick start follow the new names. Footprint is unchanged: `sd_card.o` measures 1436 bytes of `.text`, with no `.data`, `.bss` or `.rodata`, at `-O2` on cortex-m4 in both versions.
+- Still open from 0.2.0: no Standard Capacity (CSD v1) support, no high-speed or 1.8 V signalling, no yield hook for the busy-wait timeouts, and no second host port or mock-based test behind the ops table. Two `-Wconversion` warnings in `sd_card_get_csd_field()` also keep `build.sh` failing until the CSD field indices are cast.
+
 ## 0.2.0
 
 Breaking change at the port boundary. The host wrapper is gone: `src/sd_card_host.[ch]` and `sd_card_host_init()` are removed, and the ops table is now `sd_card_ops_t`, stored by pointer inside `sd_card_t` and bound once by the new `sd_card_init()`.

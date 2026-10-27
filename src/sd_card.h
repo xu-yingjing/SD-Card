@@ -30,13 +30,13 @@ typedef enum {
 } sd_card_host_bus_width_t;
 
 typedef struct {
-    sd_card_status_t (*send_cmd)(sd_card_host_cmd_t *cmd);
-    sd_card_status_t (*set_bus_width)(sd_card_host_bus_width_t width);
-    sd_card_status_t (*set_clock_frequency)(uint32_t clock_frequency);
-    void (*abort_transfer)(void);
-    sd_card_status_t (*prepare_read)(uint8_t *buffer, uint32_t size);
-    sd_card_status_t (*read)(uint8_t *buffer, uint32_t size);
-    sd_card_status_t (*write)(const uint8_t *buffer, uint32_t size);
+    sd_card_status_t (*host_send_cmd)(sd_card_host_cmd_t *cmd);
+    sd_card_status_t (*host_set_bus_width)(sd_card_host_bus_width_t width);
+    sd_card_status_t (*host_set_clock_frequency)(uint32_t clock_frequency);
+    void (*host_abort_transfer)(void);
+    sd_card_status_t (*host_prepare_read)(uint8_t *buffer, uint32_t size);
+    sd_card_status_t (*host_read)(uint8_t *buffer, uint32_t size);
+    sd_card_status_t (*host_write)(const uint8_t *buffer, uint32_t size);
     uint32_t (*get_tick_ms)(void);
 } sd_card_ops_t;
 
