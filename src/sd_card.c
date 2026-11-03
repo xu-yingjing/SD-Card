@@ -613,7 +613,7 @@ static sd_card_status_t sd_card_wait_transfer_ready(const sd_card_t *card)
 
     start_tick = card->ops->get_tick_ms();
 
-    while (true) {
+    for (;;) {
         tick = card->ops->get_tick_ms();
 
         if ((tick - start_tick) >= SD_TRANSFER_READY_TIMEOUT_MS) {
@@ -686,7 +686,7 @@ sd_card_status_t sd_card_probe(sd_card_t *card)
 
     start_tick = card->ops->get_tick_ms();
 
-    while (true) {
+    for (;;) {
         tick = card->ops->get_tick_ms();
 
         if ((tick - start_tick) >= SD_INITIALIZATION_TIMEOUT_MS) {

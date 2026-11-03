@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.3
+
+Loop spelling only. The two timeout loops in `sd_card_probe()` and `sd_card_wait_transfer_ready()` are written `for (;;)` where they were `while (true)`; each already left by its own `break` or `return`, so the 1000 ms windows and every return value are what they were in 0.2.2.
+
+- `sd_card.o` is byte-identical to the 0.2.2 object at the same `-O2` flags: 1688 bytes of `.text`, no `.data`, `.bss` or `.rodata`. `<stdbool.h>` stays required, because both block calls still compare a `bool is_multiple` against `false`.
+- Still open from 0.2.2: no Standard Capacity (CSD v1) support, no UHS or 1.8 V signalling, no yield hook for the busy-wait timeouts, no second host port or mock-based test behind the ops table, no SCR `SD_SPEC` or CSD `CCC` bit10 check before CMD6, and the two `-Wconversion` warnings in `sd_card_get_csd_field()` still keep `build.sh` failing.
+
 ## 0.2.2
 
 CMD6 `SWITCH_FUNC`: the library can now ask a card to enter its high-speed timing band. This was previously a host-side routine in the firmware the library came from, and moving it here is what lets a port raise the clock above 25 MHz without leaving the specification.

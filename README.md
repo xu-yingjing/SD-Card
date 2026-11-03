@@ -98,7 +98,7 @@ There is no build system: drop `src/` into your project and add `sd_card.c`. To 
 
 ## Status
 
-0.2.2. The code is extracted from an in-tree component of a MH2457 (Cortex-M4) firmware, where it ran against real SDHC cards over a 4-bit SDIO host. The high-speed switch is the same CMD6 exchange that firmware used, so it has been exercised on four cards at 48 MHz — but only ever against that one host, and no second host port exists yet, which is the main thing standing between this and a 1.0.0. [CHANGELOG.md](CHANGELOG.md) lists the known gaps.
+0.2.3. The code is extracted from an in-tree component of a MH2457 (Cortex-M4) firmware, where it ran against real SDHC cards over a 4-bit SDIO host. The high-speed switch is the same CMD6 exchange that firmware used, so it has been exercised on four cards at 48 MHz — but only ever against that one host, and no second host port exists yet, which is the main thing standing between this and a 1.0.0. [CHANGELOG.md](CHANGELOG.md) lists the known gaps.
 
 ## License
 
