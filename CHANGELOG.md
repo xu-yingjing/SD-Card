@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.2
+
+CMD6 `SWITCH_FUNC`: the library can now ask a card to enter its high-speed timing band. This was previously a host-side routine in the firmware the library came from, and moving it here is what lets a port raise the clock above 25 MHz without leaving the specification.
+
+- `sd_card_config_high_speed(sd_card_t *card)` sends the check for function 1 and then the select, reads the 64-byte switch status each time, and on confirmation raises `max_clock_frequency` to 50 MHz — the ceiling for 3.3 V signalling. A card that reports no high-speed function, or that answers but does not confirm the selection, leaves the card object untouched and returns `SD_CARD_ERROR`, so keeping the CSD ceiling is the expected reaction rather than a failure to handle.
+- A card declaring 100 or 200 MHz in `TRAN_SPEED` is capped to 50 MHz by a successful switch instead of keeping its declared value. Those bands belong to UHS functions, and ACMD41 is still sent with `S18R = 0`, so the library never enters them; the CSD number had been promising a clock no 3.3 V bus can carry.
+- `sd_card_host_cmd_t` gains `data` and `data_size`: the optional data phase CMD6 needs. `data_size = 0` means no data phase, so no other command changes behaviour and the ops table stays at eight functions.
+- Migration pitfall for ports: `host_send_cmd` now reads `cmd->data` and `cmd->data_size`, so a command structure declared as `sd_card_host_cmd_t cmd;` without an initializer feeds garbage to that check. All seventeen command helpers in the library set both fields before the call — sixteen to `data = NULL` with `data_size = 0U`, and `sd_card_switch_function()` to the status buffer with its 64 bytes — and a port that builds one by hand has to do the same.
+- The status buffer is cleared with `memset()` before each of the two exchanges, so `src/sd_card.c` now includes `<string.h>`: the fourth libc header in the library. The buffer is a local array, so the no-writable-statics property is unchanged.
+- The contract for a data phase is in `doc/porting.md`: arm the block before sending the command, collect `data_size` bytes into `cmd->data` after the response, low byte of each word first. A command that fails with the block armed now gets the `host_abort_transfer()` call that unwinds it.
+- `sd_card_probe()`, the bus-width switch and the read/write paths are otherwise unchanged. Footprint grows by 252 bytes of `.text` at `-O2` (1436 to 1688 bytes, arm-none-eabi-gcc 12.3 on cortex-m4), still no `.data`, `.bss` or `.rodata`. Both numbers are from this release: the 1436 was re-measured from the `v0.2.1` tag with the same flags rather than taken from the 0.2.1 note.
+- `doc/porting.md` fixes two response forms in the probe table. CMD3 answers R6 (the written RCA in the top half of the response word), not R1, and CMD7 answers R1b — so the busy a card may drive on DAT0 once selected or stopped is the port's to wait out, because the library issues no wait of its own after either command.
+- Still open from 0.2.1: no Standard Capacity (CSD v1) support, no UHS or 1.8 V signalling, no yield hook for the busy-wait timeouts, and no second host port or mock-based test behind the ops table. Two more come with this release: CMD6 goes out without the SCR `SD_SPEC` or CSD `CCC` bit10 check that section 4.3.10.1 asks the host to make first, and it asks `Power Limit = no influence`, so a card left on its power-on limit of 0.72 W — the minimum setting — stays there, while the section notes that the higher performance needs the host to raise it. The two `-Wconversion` warnings in `sd_card_get_csd_field()` (`src/sd_card.c:536` and `:542`) still keep `build.sh` failing until the CSD field indices are cast.
+
 ## 0.2.1
 
 Names only. The protocol layer behaves exactly as it did in 0.2.0, so a port written against 0.2.0 recompiles after one change: renaming its table initializers.

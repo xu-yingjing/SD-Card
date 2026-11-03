@@ -14,13 +14,13 @@ For a successful probe, the library issues, in this order:
 | 2 | CMD8 send interface condition | `host_send_cmd` (R7) |
 | 3 | CMD55 + ACMD41, repeated until busy clears | `host_send_cmd` (R1, R3), `get_tick_ms` |
 | 4 | CMD2 all send CID | `host_send_cmd` (R2, 128 bit) |
-| 5 | CMD3 send relative address | `host_send_cmd` (R1) |
+| 5 | CMD3 send relative address | `host_send_cmd` (R6: RCA in `[31:16]`) |
 | 6 | CMD9 send CSD | `host_send_cmd` (R2, 128 bit) |
-| 7 | CMD7 select card | `host_send_cmd` (R1) |
+| 7 | CMD7 select card | `host_send_cmd` (R1b, so possibly busy on DAT0) |
 
-`sd_card_config_bus_width()` then sends CMD55 + ACMD6 and only afterwards calls your `host_set_bus_width`, so the card is already in 4-bit mode when the host switches: getting that order wrong is the classic stuck-at-1-bit symptom. `sd_card_config_clock_frequency()` sends no card command at all; it only moves your host clock. Both refuse to run while the card object is not `READY` (before a successful probe, or after `sd_card_reset()`), and the clock call also refuses a request above the card's declared maximum.
+`sd_card_config_bus_width()` then sends CMD55 + ACMD6 and only afterwards calls your `host_set_bus_width`, so the card is already in 4-bit mode when the host switches: getting that order wrong is the classic stuck-at-1-bit symptom. `sd_card_config_high_speed()` belongs after the width switch and sends two CMD6 `SWITCH_FUNC` commands, a check and then a select, each answered by the data phase described above; when the card confirms the high-speed function it sets `max_clock_frequency` to 50 MHz, the ceiling for 3.3 V signalling, so a card whose CSD declares 100 or 200 MHz is capped rather than raised (those belong to UHS functions, which this library never selects). A card that declines leaves the card object untouched and returns `SD_CARD_ERROR`, and keeping the CSD ceiling is the intended reaction. `sd_card_config_clock_frequency()` sends no card command at all; it only moves your host clock. None of the three run while the card object is not `READY` (before a successful probe, or after `sd_card_reset()`), and the clock call also refuses a request above the maximum the card object currently declares.
 
-Reads call `host_prepare_read` before the command, and writes call no prepare function at all. The read sequence is `host_prepare_read` → CMD18 or CMD17 → `host_read` → CMD12 (multi-block only) → `host_abort_transfer` whenever anything after `host_prepare_read` failed. A failed read command aborts immediately, without CMD12; a failed data phase still gets its CMD12 first, then the abort. Writes are CMD13 polling → CMD55 + ACMD23 (multi-block, best effort) → CMD25 or CMD24 → `host_write` → CMD12 (multi-block only) → a second CMD13 poll; on any failure the abort replaces that second poll.
+Reads call `host_prepare_read` before the command, and writes call no prepare function at all. The read sequence is `host_prepare_read` → CMD18 or CMD17 → `host_read` → CMD12 (multi-block only) → `host_abort_transfer` whenever anything after `host_prepare_read` failed. A failed read command aborts immediately, without CMD12; a failed data phase gets its CMD12 first when the read was multi-block, then the abort. Writes are CMD13 polling → CMD55 + ACMD23 (multi-block, best effort) → CMD25 or CMD24 → `host_write` → CMD12 (multi-block only) → a second CMD13 poll; on any failure the abort replaces that second poll.
 
 ## Contracts
 
@@ -28,7 +28,9 @@ Reads call `host_prepare_read` before the command, and writes call no prepare fu
 
 `cmd->index` is the raw command number (0..63), `cmd->argument` the 32-bit argument, and `cmd->response_type` one of `NONE`, `SHORT`, `SHORT_NO_CRC`, `LONG`. On return the library reads `cmd->response[0]` for the short forms and all four words for `LONG`. The response words must be ordered so that `response[0]` holds the most significant 32 bits of the 128-bit CID/CSD register: the CSD decoder indexes words from the top bit down, and reversing them yields a plausible-looking but wrong capacity.
 
-`SHORT` means the host must check the response CRC and report an error if it is bad. `SHORT_NO_CRC` is for R3 (ACMD41), where the CRC field is not a valid CRC by specification and must be ignored. Return an error on command timeout: that is how `sd_card_probe()` decides a card is not there.
+`SHORT` means the host must check the response CRC and report an error if it is bad. `SHORT_NO_CRC` is for R3 (ACMD41), where the CRC field is not a valid CRC by specification and must be ignored. Two of the commands the library asks for as `SHORT` are R1b rather than R1: CMD7 (select) and CMD12 (stop transmission). After those the card is allowed to hold DAT0 low, and the library polls nothing of its own at either point — after CMD7 it only marks the card ready, after CMD12 it returns — so seeing that busy through belongs to `host_send_cmd`. Return an error on command timeout: that is how `sd_card_probe()` decides a card is not there.
+
+`cmd->data_size` is 0 for every command the library issues except CMD6 `SWITCH_FUNC`, which answers with a 64-byte status block on the data line. When it is not 0, `cmd->data` points at a buffer of that many bytes and the host owns the whole data phase: arm the block (the size is a power of two from 4 to 512) *before* sending the command, because the data path has to be listening the moment the card starts driving the line, then collect what arrives into `cmd->data` after the response. Store the bytes in wire order, low byte of each word first: the library reads the status back as bytes, and the offsets in it only mean anything with that order fixed. If a command with a data phase fails, the library calls `host_abort_transfer()` for you, so an armed block that never got its data only has to be recoverable that way. The library sets no timer on that phase: CMD6 is a standard single block read and the specification gives it 100 ms, so the window belongs to the port — and so does the power cycle the same section asks for when the status block comes back with a CRC error, since the status enum has no room to report one.
 
 ### `host_set_bus_width(width)`
 
@@ -36,7 +38,7 @@ Reconfigure the host data path to 1 or 4 bit. The card has already been switched
 
 ### `host_set_clock_frequency(clock_frequency)`
 
-The value is the clock the card should see, already bounded by the card's own `TRAN_SPEED`. Compute your own divider. Return an error if you cannot produce a frequency at or below the request; never silently return OK for a faster clock.
+The value is the clock the card should see, already bounded by the card's own `TRAN_SPEED` — or by 50 MHz once `sd_card_config_high_speed()` has selected the high-speed function. Compute your own divider. Return an error if you cannot produce a frequency at or below the request; never silently return OK for a faster clock. A host whose divider tops out below 50 MHz needs a second path (bypassing the divider, or a faster parent) to honour the high-speed ceiling at all; without one, the honest answer to a 50 MHz request is the error, and the card keeps the slower clock.
 
 ### `host_prepare_read(buffer, size)`
 
@@ -80,4 +82,4 @@ The status enum has no separate "no card" or "unsupported" result: an empty sock
 3. `sd_card_init(card, &ops)`, then `sd_card_probe()` from a task or main loop, never from an interrupt.
 4. `sd_card_get_block_count()` and `sd_card_get_max_clock_frequency()` only report anything after a successful probe: both return 0 while the card object is not `READY`, and `sd_card_reset()` puts it back to that state.
 5. Verify with a first read of block 0 and check for the MBR signature at offset 510 (`0x55, 0xAA`); a card that probes but reads back 0x00 has a data-path or response-ordering bug, not a protocol bug.
-6. Only then widen the bus and raise the clock.
+6. Only then widen the bus, try `sd_card_config_high_speed()`, and raise the clock to whatever `sd_card_get_max_clock_frequency()` reports afterwards.

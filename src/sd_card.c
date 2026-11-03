@@ -1,6 +1,7 @@
 #include "sd_card.h"
 #include <stddef.h>
 #include <stdbool.h>
+#include <string.h>
 
 #define SD_CMD0_GO_IDLE_STATE            (0U)
 #define SD_CMD8_SEND_IF_COND             (8U)
@@ -11,6 +12,7 @@
 #define SD_CMD9_SEND_CSD                 (9U)
 #define SD_CMD7_SELECT_CARD              (7U)
 #define SD_ACMD6_SET_BUS_WIDTH           (6U)
+#define SD_CMD6_SWITCH_FUNC              (6U)
 #define SD_CMD13_SEND_STATUS             (13U)
 #define SD_CMD12_STOP_TRANSMISSION       (12U)
 #define SD_CMD17_READ_SINGLE_BLOCK       (17U)
@@ -92,6 +94,37 @@
 #define SD_ACMD6_BUS_WIDTH_1B   (0U << SD_ACMD6_BUS_WIDTH_POS)
 #define SD_ACMD6_BUS_WIDTH_4B   (2U << SD_ACMD6_BUS_WIDTH_POS)
 
+#define SD_CMD6_MODE_POS                                                (31U)
+#define SD_CMD6_MODE_MASK                                               (0x1U << SD_CMD6_MODE_POS)
+#define SD_CMD6_MODE_CHECK                                              (0U << SD_CMD6_MODE_POS)
+#define SD_CMD6_MODE_SWITCH                                             (1U << SD_CMD6_MODE_POS)
+#define SD_CMD6_RESERVED_POS                                            (16U)
+#define SD_CMD6_RESERVED_MASK                                           (0x7FFFU << SD_CMD6_RESERVED_POS)
+#define SD_CMD6_RESERVED                                                (0U << SD_CMD6_RESERVED_POS)
+#define SD_CMD6_POWER_LIMIT_POS                                         (12U)
+#define SD_CMD6_POWER_LIMIT_MASK                                        (0xFU << SD_CMD6_POWER_LIMIT_POS)
+#define SD_CMD6_POWER_LIMIT_DONT_CARE                                   (0xFU << SD_CMD6_POWER_LIMIT_POS)
+#define SD_CMD6_DRIVE_STRENGTH_POS                                      (8U)
+#define SD_CMD6_DRIVE_STRENGTH_MASK                                     (0xFU << SD_CMD6_DRIVE_STRENGTH_POS)
+#define SD_CMD6_DRIVE_STRENGTH_DONT_CARE                                (0xFU << SD_CMD6_DRIVE_STRENGTH_POS)
+#define SD_CMD6_COMMAND_SYSTEM_POS                                      (4U)
+#define SD_CMD6_COMMAND_SYSTEM_MASK                                     (0xFU << SD_CMD6_COMMAND_SYSTEM_POS)
+#define SD_CMD6_COMMAND_SYSTEM_DONT_CARE                                (0xFU << SD_CMD6_COMMAND_SYSTEM_POS)
+#define SD_CMD6_ACCESS_MODE_POS                                         (0U)
+#define SD_CMD6_ACCESS_MODE_MASK                                        (0xFU << SD_CMD6_ACCESS_MODE_POS)
+#define SD_CMD6_ACCESS_MODE_HS                                          (1U << SD_CMD6_ACCESS_MODE_POS)
+#define SD_CMD6_ACCESS_MODE_DONT_CARE                                   (0xFU << SD_CMD6_ACCESS_MODE_POS)
+#define SD_CMD6_STATUS_BIT_SIZE                                         (512U)
+#define SD_CMD6_STATUS_SUPPORT_ACCESS_MODE_BIT_POS                      (400U)
+#define SD_CMD6_STATUS_SUPPORT_ACCESS_MODE_HS_BIT_POS                   (1U + SD_CMD6_STATUS_SUPPORT_ACCESS_MODE_BIT_POS)
+#define SD_CMD6_STATUS_FUNCTION_SELECTION_ACCESS_MODE_BIT_POS           (376U)
+#define SD_CMD6_STATUS_BYTE_SIZE                                        (SD_CMD6_STATUS_BIT_SIZE / 8U)
+#define SD_CMD6_STATUS_SUPPORT_ACCESS_MODE_HS_BYTE_POS                  ((SD_CMD6_STATUS_BIT_SIZE - 1U - SD_CMD6_STATUS_SUPPORT_ACCESS_MODE_HS_BIT_POS) / 8U)
+#define SD_CMD6_STATUS_SUPPORT_ACCESS_MODE_HS_BYTE_MASK                 (1U << (SD_CMD6_STATUS_SUPPORT_ACCESS_MODE_HS_BIT_POS % 8U))
+#define SD_CMD6_STATUS_FUNCTION_SELECTION_ACCESS_MODE_BYTE_POS          ((SD_CMD6_STATUS_BIT_SIZE - 1U - SD_CMD6_STATUS_FUNCTION_SELECTION_ACCESS_MODE_BIT_POS) / 8U)
+#define SD_CMD6_STATUS_FUNCTION_SELECTION_ACCESS_MODE_BYTE_MASK         (0xFU << (SD_CMD6_STATUS_FUNCTION_SELECTION_ACCESS_MODE_BIT_POS % 8U))
+#define SD_CMD6_STATUS_FUNCTION_SELECTION_ACCESS_MODE_HS                (1U << (SD_CMD6_STATUS_FUNCTION_SELECTION_ACCESS_MODE_BIT_POS % 8U))
+
 #define SD_CMD13_RCA_POS                        (16U)
 #define SD_CMD13_RCA_MASK                       (0xFFFFU << SD_CMD13_RCA_POS)
 #define SD_CMD13_SEND_STATUS_POS                (15U)
@@ -166,6 +199,8 @@ static sd_card_status_t sd_card_go_idle_state(const sd_card_t *card)
 {
     sd_card_host_cmd_t cmd;
 
+    cmd.data = NULL;
+    cmd.data_size = 0U;
     cmd.index = SD_CMD0_GO_IDLE_STATE;
     cmd.argument = 0U;
     cmd.response_type = SD_CARD_HOST_RESPONSE_NONE;
@@ -182,6 +217,8 @@ static sd_card_status_t sd_card_send_if_cond(const sd_card_t *card,
 {
     sd_card_host_cmd_t cmd;
 
+    cmd.data = NULL;
+    cmd.data_size = 0U;
     cmd.index = SD_CMD8_SEND_IF_COND;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
@@ -201,6 +238,8 @@ static sd_card_status_t sd_card_send_app_cmd(const sd_card_t *card,
 {
     sd_card_host_cmd_t cmd;
 
+    cmd.data = NULL;
+    cmd.data_size = 0U;
     cmd.index = SD_CMD55_APP_CMD;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
@@ -217,6 +256,8 @@ static sd_card_status_t sd_card_send_op_cond(const sd_card_t *card,
 {
     sd_card_host_cmd_t cmd;
 
+    cmd.data = NULL;
+    cmd.data_size = 0U;
     cmd.index = SD_ACMD41_SD_SEND_OP_COND;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT_NO_CRC;
@@ -236,6 +277,8 @@ static sd_card_status_t sd_card_send_all_send_cid(const sd_card_t *card,
 {
     sd_card_host_cmd_t cmd;
 
+    cmd.data = NULL;
+    cmd.data_size = 0U;
     cmd.index = SD_CMD2_ALL_SEND_CID;
     cmd.argument = 0U;
     cmd.response_type = SD_CARD_HOST_RESPONSE_LONG;
@@ -258,6 +301,8 @@ static sd_card_status_t sd_card_send_relative_addr(const sd_card_t *card,
 {
     sd_card_host_cmd_t cmd;
 
+    cmd.data = NULL;
+    cmd.data_size = 0U;
     cmd.index = SD_CMD3_SEND_RELATIVE_ADDR;
     cmd.argument = 0U;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
@@ -278,6 +323,8 @@ static sd_card_status_t sd_card_send_csd(const sd_card_t *card,
 {
     sd_card_host_cmd_t cmd;
 
+    cmd.data = NULL;
+    cmd.data_size = 0U;
     cmd.index = SD_CMD9_SEND_CSD;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_LONG;
@@ -300,6 +347,8 @@ static sd_card_status_t sd_card_select_card(const sd_card_t *card,
 {
     sd_card_host_cmd_t cmd;
 
+    cmd.data = NULL;
+    cmd.data_size = 0U;
     cmd.index = SD_CMD7_SELECT_CARD;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
@@ -315,10 +364,32 @@ static sd_card_status_t sd_card_set_bus_width(const sd_card_t *card,
 {
     sd_card_host_cmd_t cmd;
 
+    cmd.data = NULL;
+    cmd.data_size = 0U;
     cmd.index = SD_ACMD6_SET_BUS_WIDTH;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
     if (card->ops->host_send_cmd(&cmd) != SD_CARD_OK) {
+        return SD_CARD_ERROR;
+    }
+
+    return SD_CARD_OK;
+}
+
+static sd_card_status_t sd_card_switch_function(const sd_card_t *card,
+                                                uint32_t argument,
+                                                uint8_t *status)
+{
+    sd_card_host_cmd_t cmd;
+
+    cmd.data = status;
+    cmd.data_size = SD_CMD6_STATUS_BYTE_SIZE;
+    cmd.index = SD_CMD6_SWITCH_FUNC;
+    cmd.argument = argument;
+    cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
+    if (card->ops->host_send_cmd(&cmd) != SD_CARD_OK) {
+        card->ops->host_abort_transfer();
+
         return SD_CARD_ERROR;
     }
 
@@ -331,6 +402,8 @@ static sd_card_status_t sd_card_send_status(const sd_card_t *card,
 {
     sd_card_host_cmd_t cmd;
 
+    cmd.data = NULL;
+    cmd.data_size = 0U;
     cmd.index = SD_CMD13_SEND_STATUS;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
@@ -349,6 +422,8 @@ static sd_card_status_t sd_card_stop_transmission(const sd_card_t *card)
 {
     sd_card_host_cmd_t cmd;
 
+    cmd.data = NULL;
+    cmd.data_size = 0U;
     cmd.index = SD_CMD12_STOP_TRANSMISSION;
     cmd.argument = 0U;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
@@ -364,6 +439,8 @@ static sd_card_status_t sd_card_read_single_block(const sd_card_t *card,
 {
     sd_card_host_cmd_t cmd;
 
+    cmd.data = NULL;
+    cmd.data_size = 0U;
     cmd.index = SD_CMD17_READ_SINGLE_BLOCK;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
@@ -379,6 +456,8 @@ static sd_card_status_t sd_card_read_multiple_block(const sd_card_t *card,
 {
     sd_card_host_cmd_t cmd;
 
+    cmd.data = NULL;
+    cmd.data_size = 0U;
     cmd.index = SD_CMD18_READ_MULTIPLE_BLOCK;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
@@ -394,6 +473,8 @@ static sd_card_status_t sd_card_set_wr_blk_erase_count(const sd_card_t *card,
 {
     sd_card_host_cmd_t cmd;
 
+    cmd.data = NULL;
+    cmd.data_size = 0U;
     cmd.index = SD_ACMD23_SET_WR_BLK_ERASE_COUNT;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
@@ -409,6 +490,8 @@ static sd_card_status_t sd_card_write_block(const sd_card_t *card,
 {
     sd_card_host_cmd_t cmd;
 
+    cmd.data = NULL;
+    cmd.data_size = 0U;
     cmd.index = SD_CMD24_WRITE_BLOCK;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
@@ -424,6 +507,8 @@ static sd_card_status_t sd_card_write_multiple_block(const sd_card_t *card,
 {
     sd_card_host_cmd_t cmd;
 
+    cmd.data = NULL;
+    cmd.data_size = 0U;
     cmd.index = SD_CMD25_WRITE_MULTIPLE_BLOCK;
     cmd.argument = argument;
     cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
@@ -724,6 +809,45 @@ sd_card_status_t sd_card_config_bus_width(const sd_card_t *card,
     if (card->ops->host_set_bus_width(host_bus_width) != SD_CARD_OK) {
         return SD_CARD_ERROR;
     }
+
+    return SD_CARD_OK;
+}
+
+sd_card_status_t sd_card_config_high_speed(sd_card_t *card)
+{
+    uint8_t status[SD_CMD6_STATUS_BYTE_SIZE];
+
+    if (card == NULL) {
+        return SD_CARD_ERROR;
+    }
+
+    if (card->state != SD_CARD_STATE_READY) {
+        return SD_CARD_ERROR;
+    }
+
+    (void)memset(status, 0U, sizeof(status));
+    if (sd_card_switch_function(card,
+                                SD_CMD6_MODE_CHECK | SD_CMD6_RESERVED | SD_CMD6_POWER_LIMIT_DONT_CARE | SD_CMD6_DRIVE_STRENGTH_DONT_CARE | SD_CMD6_COMMAND_SYSTEM_DONT_CARE | SD_CMD6_ACCESS_MODE_HS,
+                                status) != SD_CARD_OK) {
+        return SD_CARD_ERROR;
+    }
+
+    if ((status[SD_CMD6_STATUS_SUPPORT_ACCESS_MODE_HS_BYTE_POS] & SD_CMD6_STATUS_SUPPORT_ACCESS_MODE_HS_BYTE_MASK) == 0U) {
+        return SD_CARD_ERROR;
+    }
+
+    (void)memset(status, 0U, sizeof(status));
+    if (sd_card_switch_function(card,
+                                SD_CMD6_MODE_SWITCH | SD_CMD6_RESERVED | SD_CMD6_POWER_LIMIT_DONT_CARE | SD_CMD6_DRIVE_STRENGTH_DONT_CARE | SD_CMD6_COMMAND_SYSTEM_DONT_CARE | SD_CMD6_ACCESS_MODE_HS,
+                                status) != SD_CARD_OK) {
+        return SD_CARD_ERROR;
+    }
+
+    if ((status[SD_CMD6_STATUS_FUNCTION_SELECTION_ACCESS_MODE_BYTE_POS] & SD_CMD6_STATUS_FUNCTION_SELECTION_ACCESS_MODE_BYTE_MASK) != SD_CMD6_STATUS_FUNCTION_SELECTION_ACCESS_MODE_HS) {
+        return SD_CARD_ERROR;
+    }
+
+    card->max_clock_frequency = SD_CARD_CLOCK_FREQUENCY_50000000HZ;
 
     return SD_CARD_OK;
 }

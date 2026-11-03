@@ -37,7 +37,24 @@ static example_host_t example_host = {
    whether a response is expected and whether its CRC is meaningful. On OK,
    cmd->response[] must hold it, response[0] being the most significant word
    for a 128 bit response. A command that times out must return an error:
-   that is the only way sd_card_probe() learns the socket is empty. */
+   that is the only way sd_card_probe() learns the socket is empty.
+
+   CMD3 answers R6 rather than R1: the relative address the library keeps is
+   the top half of response[0]. CMD7 (select) and CMD12 (stop transmission)
+   answer R1b, and after those the card may hold DAT0 low; the library polls
+   nothing of its own at either point, so a port has to wait that busy out
+   here rather than return with the data line still driven.
+
+   cmd->data_size is 0 for every command here except CMD6, whose 64-byte
+   switch status arrives on the data line: arm that block before sending the
+   command, because the data path has to be listening when the card starts
+   driving, then collect data_size bytes into cmd->data afterwards, low byte
+   of each word first. If the command fails with the block armed, the library
+   calls host_abort_transfer() to unwind it.
+
+   The library keeps no clock on that block: CMD6 is a single block read with a
+   100 ms timeout, so the wait — and the power cycle a CRC error in the status
+   asks for — is the port's. */
 static sd_card_status_t example_send_cmd(sd_card_host_cmd_t *cmd)
 {
     (void)cmd;
@@ -55,12 +72,14 @@ static sd_card_status_t example_set_bus_width(sd_card_host_bus_width_t width)
     return SD_CARD_ERROR;
 }
 
-/* bus_frequency_hz is already capped by the card's own TRAN_SPEED, and the
-   library never asks for a clock before this point: the sub-400 kHz 1-bit
-   clock used for probe is yours to configure. Program your divider here and
-   store what the divider actually produces (which may be lower than asked)
-   in bus_frequency_hz, or return an error if it cannot reach at or below the
-   requested frequency. Never return OK for a faster clock. */
+/* bus_frequency_hz is already capped by the card's own maximum — the CSD
+   TRAN_SPEED, or 50 MHz once sd_card_config_high_speed() has selected the
+   high-speed function — and the library never asks for a clock before this
+   point: the sub-400 kHz 1-bit clock used for probe is yours to configure.
+   Program your divider here and store what the divider actually produces
+   (which may be lower than asked) in bus_frequency_hz, or return an error if
+   it cannot reach at or below the requested frequency. Never return OK for a
+   faster clock. */
 static sd_card_status_t example_set_clock_frequency(uint32_t clock_frequency)
 {
     (void)clock_frequency;
@@ -154,6 +173,11 @@ sd_card_status_t example_card_up(sd_card_t *card)
     if (ret != SD_CARD_OK) {
         return ret;
     }
+
+    /* Optional, and allowed to fail: a card that has no high-speed function
+       keeps the ceiling from its CSD, so the clock request below just stays
+       on the slower band. */
+    (void)sd_card_config_high_speed(card);
 
     ret = sd_card_config_clock_frequency(card, sd_card_get_max_clock_frequency(card));
     if (ret != SD_CARD_OK) {

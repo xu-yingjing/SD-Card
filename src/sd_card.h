@@ -17,6 +17,8 @@ typedef enum {
 } sd_card_host_response_type_t;
 
 typedef struct {
+    uint8_t *data;
+    uint32_t data_size;
     uint8_t index;
     uint32_t argument;
     sd_card_host_response_type_t response_type;
@@ -79,6 +81,8 @@ sd_card_status_t sd_card_reset(sd_card_t *card);
 
 sd_card_status_t sd_card_config_bus_width(const sd_card_t *card,
                                           sd_card_bus_width_t bus_width);
+
+sd_card_status_t sd_card_config_high_speed(sd_card_t *card);
 
 sd_card_status_t sd_card_config_clock_frequency(const sd_card_t *card,
                                                 uint32_t clock_frequency);
