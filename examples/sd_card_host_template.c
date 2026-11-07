@@ -1,11 +1,4 @@
-/*
- * Skeleton of a port for the sd-card library.
- *
- * It compiles, touches no controller register, and fails every command: what
- * it pins down is the shape of the eight ops entries and the order the library
- * calls them in. Replace the bodies with your SDIO access, and read
- * doc/porting.md before changing any signature.
- */
+/* Non-functional SDIO port; implement the callback contracts in doc/porting.md. */
 
 #include <stddef.h>
 #include <stdint.h>
@@ -33,28 +26,7 @@ static example_host_t example_host = {
     .tick_ms = 0U,
 };
 
-/* cmd->index is the raw command number (0..63), cmd->response_type says
-   whether a response is expected and whether its CRC is meaningful. On OK,
-   cmd->response[] must hold it, response[0] being the most significant word
-   for a 128 bit response. A command that times out must return an error:
-   that is the only way sd_card_probe() learns the socket is empty.
-
-   CMD3 answers R6 rather than R1: the relative address the library keeps is
-   the top half of response[0]. CMD7 (select) and CMD12 (stop transmission)
-   answer R1b, and after those the card may hold DAT0 low; the library polls
-   nothing of its own at either point, so a port has to wait that busy out
-   here rather than return with the data line still driven.
-
-   cmd->data_size is 0 for every command here except CMD6, whose 64-byte
-   switch status arrives on the data line: arm that block before sending the
-   command, because the data path has to be listening when the card starts
-   driving, then collect data_size bytes into cmd->data afterwards, low byte
-   of each word first. If the command fails with the block armed, the library
-   calls host_abort_transfer() to unwind it.
-
-   The library keeps no clock on that block: CMD6 is a single block read with a
-   100 ms timeout, so the wait — and the power cycle a CRC error in the status
-   asks for — is the port's. */
+/* Return bounded command errors; a silent CMD8 also occurs on legacy SD cards. */
 static sd_card_status_t example_send_cmd(sd_card_host_cmd_t *cmd)
 {
     (void)cmd;
@@ -106,11 +78,7 @@ static sd_card_status_t example_prepare_read(uint8_t *buffer, uint32_t size)
     return SD_CARD_OK;
 }
 
-/* The only function expected to block. Returns when all size bytes have
-   reached the card-side of the bus and into buffer, or with an error after
-   your own data timeout; the library calls host_abort_transfer() next either
-   way. On a DMA host this is the wait-on-completion half of
-   host_prepare_read(). */
+/* Complete and clean up the host data phase; successful reads do not call abort. */
 static sd_card_status_t example_read(uint8_t *buffer, uint32_t size)
 {
     (void)buffer;
@@ -130,10 +98,7 @@ static sd_card_status_t example_write(const uint8_t *buffer, uint32_t size)
     return SD_CARD_ERROR;
 }
 
-/* Milliseconds, monotonic, from a SysTick or RTOS tick. The counter is safe to
-   wrap: the library only ever subtracts two values in uint32_t. A hook that
-   returns a constant is as broken as a missing one, because the timeout loops
-   cannot tell that time is standing still. */
+/* Demonstration counter only; a real port needs an independent millisecond clock. */
 static uint32_t example_get_tick_ms(void)
 {
     return example_host.tick_ms++;
@@ -148,13 +113,15 @@ static const sd_card_ops_t example_ops = {
     .host_read = example_read,
     .host_write = example_write,
     .get_tick_ms = example_get_tick_ms,
+    /* NULL keeps polling busy; an RTOS port can supply a task-sleep callback. */
+    .sleep_ms = NULL,
 };
 
-/* The order a real application needs, in executable form. With the template
-   bodies above, every call here fails, which is the expected result. */
+/* Binding succeeds; probe fails until the host callbacks are implemented. */
 sd_card_status_t example_card_up(sd_card_t *card)
 {
     sd_card_status_t ret;
+    uint32_t clock_frequency;
     uint8_t sector[512];
 
     /* Before this point: card powered, pins muxed, host clock at or below
@@ -174,12 +141,13 @@ sd_card_status_t example_card_up(sd_card_t *card)
         return ret;
     }
 
-    /* Optional, and allowed to fail: a card that has no high-speed function
-       keeps the ceiling from its CSD, so the clock request below just stays
-       on the slower band. */
-    (void)sd_card_config_high_speed(card);
+    /* Stay at default speed unless the high-speed switch is confirmed. */
+    clock_frequency = SD_CARD_CLOCK_FREQUENCY_25000000HZ;
+    if (sd_card_config_high_speed(card) == SD_CARD_OK) {
+        clock_frequency = sd_card_get_max_clock_frequency(card);
+    }
 
-    ret = sd_card_config_clock_frequency(card, sd_card_get_max_clock_frequency(card));
+    ret = sd_card_config_clock_frequency(card, clock_frequency);
     if (ret != SD_CARD_OK) {
         return ret;
     }

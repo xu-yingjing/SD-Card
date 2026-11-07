@@ -1,7 +1,7 @@
 #include "sd_card.h"
-#include <stddef.h>
 #include <stdbool.h>
 #include <string.h>
+#include <stddef.h>
 
 #define SD_CMD0_GO_IDLE_STATE            (0U)
 #define SD_CMD8_SEND_IF_COND             (8U)
@@ -20,6 +20,7 @@
 #define SD_ACMD23_SET_WR_BLK_ERASE_COUNT (23U)
 #define SD_CMD24_WRITE_BLOCK             (24U)
 #define SD_CMD25_WRITE_MULTIPLE_BLOCK    (25U)
+#define SD_CMD16_SET_BLOCKLEN            (16U)
 
 #define SD_CMD8_VHS_POS                     (8U)
 #define SD_CMD8_VHS_MASK                    (0xFU << SD_CMD8_VHS_POS)
@@ -75,10 +76,10 @@
 #define SD_ACMD41_RESP0_BUSY_MASK                    (0x1U << SD_ACMD41_RESP0_BUSY_POS)
 #define SD_ACMD41_RESP0_BUSY_ON_INITIALIZATION       (0U << SD_ACMD41_RESP0_BUSY_POS)
 #define SD_ACMD41_RESP0_BUSY_INITIALIZATION_COMPLETE (1U << SD_ACMD41_RESP0_BUSY_POS)
-#define SD_ACMD41_RESP0_CSS_POS                      (30U)
-#define SD_ACMD41_RESP0_CSS_MASK                     (0x1U << SD_ACMD41_RESP0_CSS_POS)
-#define SD_ACMD41_RESP0_CSS_SDSC                     (0U << SD_ACMD41_RESP0_CSS_POS)
-#define SD_ACMD41_RESP0_CSS_SDHC_SDXC                (1U << SD_ACMD41_RESP0_CSS_POS)
+#define SD_ACMD41_RESP0_CCS_POS                      (30U)
+#define SD_ACMD41_RESP0_CCS_MASK                     (0x1U << SD_ACMD41_RESP0_CCS_POS)
+#define SD_ACMD41_RESP0_CCS_SDSC                     (0U << SD_ACMD41_RESP0_CCS_POS)
+#define SD_ACMD41_RESP0_CCS_SDHC_SDXC                (1U << SD_ACMD41_RESP0_CCS_POS)
 
 #define SD_CMD3_RCA_POS  (16U)
 #define SD_CMD3_RCA_MASK (0xFFFFU << SD_CMD3_RCA_POS)
@@ -150,32 +151,62 @@
 #define SD_ACMD23_NUMBER_OF_BLOCKS_POS  (0U)
 #define SD_ACMD23_NUMBER_OF_BLOCKS_MASK (0x7FFFFFU << SD_ACMD23_NUMBER_OF_BLOCKS_POS)
 
+#define SD_INITIALIZATION_APP_CMD_MAX_FAILURES (8U)
+
 #define SD_INITIALIZATION_TIMEOUT_MS (1000U)
 #define SD_TRANSFER_READY_TIMEOUT_MS (1000U)
 
-#define SD_BLOCK_SIZE (512U)
+#define SD_POLL_SLEEP_THRESHOLD_MS (2U)
+#define SD_INITIALIZATION_SLEEP_MS (10U)
+#define SD_TRANSFER_READY_SLEEP_MS (1U)
 
-#define SD_CSD_CSD_STRUCTURE_START_BIT (126U)
-#define SD_CSD_CSD_STRUCTURE_WIDTH     (2U)
-#define SD_CSD_CSD_STRUCTURE_V2        (1U)
-#define SD_CSD_TRAN_SPEED_START_BIT    (96U)
-#define SD_CSD_TRAN_SPEED_WIDTH        (8U)
-#define SD_CSD_TRAN_SPEED_25MHZ        (0x32U)
-#define SD_CSD_TRAN_SPEED_50MHZ        (0x5AU)
-#define SD_CSD_TRAN_SPEED_100MHZ       (0x0BU)
-#define SD_CSD_TRAN_SPEED_200MHZ       (0x2BU)
-#define SD_CSD_READ_BL_LEN_START_BIT   (80U)
-#define SD_CSD_READ_BL_LEN_WIDTH       (4U)
-#define SD_CSD_READ_BL_LEN_512B        (9U)
-#define SD_CSD_C_SIZE_START_BIT        (48U)
-#define SD_CSD_C_SIZE_WIDTH            (22U)
-#define SD_CSD_C_SIZE_SDHC_MIN         (0x1010U)
-#define SD_CSD_C_SIZE_SDHC_MAX         (0xFF5FU)
-#define SD_CSD_C_SIZE_SDXC_MIN         (0xFFFFU)
-#define SD_CSD_C_SIZE_SDXC_MAX         (0x3FFEFFU)
-#define SD_CSD_WRITE_BL_LEN_START_BIT  (22U)
-#define SD_CSD_WRITE_BL_LEN_WIDTH      (4U)
-#define SD_CSD_WRITE_BL_LEN_512B       (9U)
+#define SD_CSD_CSD_STRUCTURE_START_BIT  (126U)
+#define SD_CSD_CSD_STRUCTURE_WIDTH      (2U)
+#define SD_CSD_CSD_STRUCTURE_V1         (0U)
+#define SD_CSD_CSD_STRUCTURE_V2         (1U)
+#define SD_CSD_CCC_START_BIT            (84U)
+#define SD_CSD_CCC_WIDTH                (12U)
+#define SD_CSD_CCC_SWITCH               (1U << 10)
+#define SD_CSD_TRAN_SPEED_START_BIT     (96U)
+#define SD_CSD_TRAN_SPEED_WIDTH         (8U)
+#define SD_CSD_TRAN_SPEED_25MHZ         (0x32U)
+#define SD_CSD_TRAN_SPEED_50MHZ         (0x5AU)
+#define SD_CSD_TRAN_SPEED_100MHZ        (0x0BU)
+#define SD_CSD_TRAN_SPEED_200MHZ        (0x2BU)
+#define SD_CSD_READ_BL_LEN_START_BIT    (80U)
+#define SD_CSD_READ_BL_LEN_WIDTH        (4U)
+#define SD_CSD_READ_BL_LEN_V1_512B      (9U)
+#define SD_CSD_READ_BL_LEN_V1_1024B     (10U)
+#define SD_CSD_READ_BL_LEN_V1_2048B     (11U)
+#define SD_CSD_READ_BL_LEN_V2_512B      (9U)
+#define SD_CSD_C_SIZE_V1_START_BIT      (62U)
+#define SD_CSD_C_SIZE_V1_WIDTH          (12U)
+#define SD_CSD_C_SIZE_V2_START_BIT      (48U)
+#define SD_CSD_C_SIZE_V2_WIDTH          (22U)
+#define SD_CSD_C_SIZE_V2_SDHC_MIN       (0x1010U)
+#define SD_CSD_C_SIZE_V2_SDHC_MAX       (0xFF5FU)
+#define SD_CSD_C_SIZE_V2_SDXC_MIN       (0xFFFFU)
+#define SD_CSD_C_SIZE_V2_SDXC_MAX       (0x3FFEFFU)
+#define SD_CSD_C_SIZE_MULT_V1_START_BIT (47U)
+#define SD_CSD_C_SIZE_MULT_V1_WIDTH     (3U)
+#define SD_CSD_C_SIZE_MULT_V1_4         (0U)
+#define SD_CSD_C_SIZE_MULT_V1_8         (1U)
+#define SD_CSD_C_SIZE_MULT_V1_16        (2U)
+#define SD_CSD_C_SIZE_MULT_V1_32        (3U)
+#define SD_CSD_C_SIZE_MULT_V1_64        (4U)
+#define SD_CSD_C_SIZE_MULT_V1_128       (5U)
+#define SD_CSD_C_SIZE_MULT_V1_256       (6U)
+#define SD_CSD_C_SIZE_MULT_V1_512       (7U)
+#define SD_CSD_WRITE_BL_LEN_START_BIT   (22U)
+#define SD_CSD_WRITE_BL_LEN_WIDTH       (4U)
+#define SD_CSD_WRITE_BL_LEN_V1_512B     (9U)
+#define SD_CSD_WRITE_BL_LEN_V1_1024B    (10U)
+#define SD_CSD_WRITE_BL_LEN_V1_2048B    (11U)
+#define SD_CSD_WRITE_BL_LEN_V2_512B     (9U)
+
+#define SD_BLOCK_SIZE           (512U)
+#define SD_SDSC_MAX_BLOCK_COUNT ((2028U << 20) / SD_BLOCK_SIZE)
+#define SD_SDHC_MAX_BLOCK_COUNT ((SD_CSD_C_SIZE_V2_SDHC_MAX + 1U) << (19U - 9U))
 
 static void sd_card_init_object(sd_card_t *card)
 {
@@ -190,6 +221,7 @@ static void sd_card_init_object(sd_card_t *card)
     card->csd[1] = 0U;
     card->csd[2] = 0U;
     card->csd[3] = 0U;
+    card->capacity_type = SD_CARD_CAPACITY_TYPE_UNKNOWN;
     card->block_count = 0U;
     card->block_size = 0U;
     card->max_clock_frequency = 0U;
@@ -519,6 +551,23 @@ static sd_card_status_t sd_card_write_multiple_block(const sd_card_t *card,
     return SD_CARD_OK;
 }
 
+static sd_card_status_t sd_card_set_blocklen(const sd_card_t *card,
+                                             uint32_t argument)
+{
+    sd_card_host_cmd_t cmd;
+
+    cmd.data = NULL;
+    cmd.data_size = 0U;
+    cmd.index = SD_CMD16_SET_BLOCKLEN;
+    cmd.argument = argument;
+    cmd.response_type = SD_CARD_HOST_RESPONSE_SHORT;
+    if (card->ops->host_send_cmd(&cmd) != SD_CARD_OK) {
+        return SD_CARD_ERROR;
+    }
+
+    return SD_CARD_OK;
+}
+
 static uint32_t sd_card_get_csd_field(const uint32_t *csd,
                                       uint8_t start_bit,
                                       uint8_t width)
@@ -558,37 +607,100 @@ static sd_card_status_t sd_card_parse_csd(sd_card_t *card,
     uint32_t read_bl_len;
     uint32_t c_size;
     uint32_t write_bl_len;
+    uint32_t c_size_mult;
 
     csd_structure = sd_card_get_csd_field(csd, SD_CSD_CSD_STRUCTURE_START_BIT, SD_CSD_CSD_STRUCTURE_WIDTH);
-    if (csd_structure != SD_CSD_CSD_STRUCTURE_V2) {
+    if ((csd_structure != SD_CSD_CSD_STRUCTURE_V1) &&
+        (csd_structure != SD_CSD_CSD_STRUCTURE_V2)) {
+        return SD_CARD_ERROR;
+    }
+
+    if (((csd_structure == SD_CSD_CSD_STRUCTURE_V1) &&
+         ((card->ocr & SD_ACMD41_RESP0_CCS_MASK) != SD_ACMD41_RESP0_CCS_SDSC)) ||
+        ((csd_structure == SD_CSD_CSD_STRUCTURE_V2) &&
+         ((card->ocr & SD_ACMD41_RESP0_CCS_MASK) != SD_ACMD41_RESP0_CCS_SDHC_SDXC))) {
         return SD_CARD_ERROR;
     }
 
     tran_speed = sd_card_get_csd_field(csd, SD_CSD_TRAN_SPEED_START_BIT, SD_CSD_TRAN_SPEED_WIDTH);
-    if ((tran_speed != SD_CSD_TRAN_SPEED_25MHZ) &&
-        (tran_speed != SD_CSD_TRAN_SPEED_50MHZ) &&
-        (tran_speed != SD_CSD_TRAN_SPEED_100MHZ) &&
-        (tran_speed != SD_CSD_TRAN_SPEED_200MHZ)) {
-        return SD_CARD_ERROR;
+    if (csd_structure == SD_CSD_CSD_STRUCTURE_V1) {
+        if ((tran_speed != SD_CSD_TRAN_SPEED_25MHZ) &&
+            (tran_speed != SD_CSD_TRAN_SPEED_50MHZ)) {
+            return SD_CARD_ERROR;
+        }
+    } else {
+        if ((tran_speed != SD_CSD_TRAN_SPEED_25MHZ) &&
+            (tran_speed != SD_CSD_TRAN_SPEED_50MHZ) &&
+            (tran_speed != SD_CSD_TRAN_SPEED_100MHZ) &&
+            (tran_speed != SD_CSD_TRAN_SPEED_200MHZ)) {
+            return SD_CARD_ERROR;
+        }
     }
 
     read_bl_len = sd_card_get_csd_field(csd, SD_CSD_READ_BL_LEN_START_BIT, SD_CSD_READ_BL_LEN_WIDTH);
-    if (read_bl_len != SD_CSD_READ_BL_LEN_512B) {
-        return SD_CARD_ERROR;
-    }
-
-    c_size = sd_card_get_csd_field(csd, SD_CSD_C_SIZE_START_BIT, SD_CSD_C_SIZE_WIDTH);
-    if (((c_size < SD_CSD_C_SIZE_SDHC_MIN) || (c_size > SD_CSD_C_SIZE_SDHC_MAX)) &&
-        ((c_size < SD_CSD_C_SIZE_SDXC_MIN) || (c_size > SD_CSD_C_SIZE_SDXC_MAX))) {
-        return SD_CARD_ERROR;
+    if (csd_structure == SD_CSD_CSD_STRUCTURE_V1) {
+        if ((read_bl_len != SD_CSD_READ_BL_LEN_V1_512B) &&
+            (read_bl_len != SD_CSD_READ_BL_LEN_V1_1024B) &&
+            (read_bl_len != SD_CSD_READ_BL_LEN_V1_2048B)) {
+            return SD_CARD_ERROR;
+        }
+    } else {
+        if (read_bl_len != SD_CSD_READ_BL_LEN_V2_512B) {
+            return SD_CARD_ERROR;
+        }
     }
 
     write_bl_len = sd_card_get_csd_field(csd, SD_CSD_WRITE_BL_LEN_START_BIT, SD_CSD_WRITE_BL_LEN_WIDTH);
-    if (write_bl_len != SD_CSD_WRITE_BL_LEN_512B) {
-        return SD_CARD_ERROR;
+    if (csd_structure == SD_CSD_CSD_STRUCTURE_V1) {
+        if ((write_bl_len != SD_CSD_WRITE_BL_LEN_V1_512B) &&
+            (write_bl_len != SD_CSD_WRITE_BL_LEN_V1_1024B) &&
+            (write_bl_len != SD_CSD_WRITE_BL_LEN_V1_2048B)) {
+            return SD_CARD_ERROR;
+        }
+    } else {
+        if (write_bl_len != SD_CSD_WRITE_BL_LEN_V2_512B) {
+            return SD_CARD_ERROR;
+        }
     }
 
-    card->block_count = (c_size + 1U) << 10U;
+    if (csd_structure == SD_CSD_CSD_STRUCTURE_V1) {
+        if (((read_bl_len == SD_CSD_READ_BL_LEN_V1_512B) && (write_bl_len != SD_CSD_WRITE_BL_LEN_V1_512B)) ||
+            ((read_bl_len == SD_CSD_READ_BL_LEN_V1_1024B) && (write_bl_len != SD_CSD_WRITE_BL_LEN_V1_1024B)) ||
+            ((read_bl_len == SD_CSD_READ_BL_LEN_V1_2048B) && (write_bl_len != SD_CSD_WRITE_BL_LEN_V1_2048B))) {
+            return SD_CARD_ERROR;
+        }
+    }
+
+    if (csd_structure == SD_CSD_CSD_STRUCTURE_V1) {
+        c_size = sd_card_get_csd_field(csd, SD_CSD_C_SIZE_V1_START_BIT, SD_CSD_C_SIZE_V1_WIDTH);
+        c_size_mult = sd_card_get_csd_field(csd, SD_CSD_C_SIZE_MULT_V1_START_BIT, SD_CSD_C_SIZE_MULT_V1_WIDTH);
+        if ((c_size_mult != SD_CSD_C_SIZE_MULT_V1_4) &&
+            (c_size_mult != SD_CSD_C_SIZE_MULT_V1_8) &&
+            (c_size_mult != SD_CSD_C_SIZE_MULT_V1_16) &&
+            (c_size_mult != SD_CSD_C_SIZE_MULT_V1_32) &&
+            (c_size_mult != SD_CSD_C_SIZE_MULT_V1_64) &&
+            (c_size_mult != SD_CSD_C_SIZE_MULT_V1_128) &&
+            (c_size_mult != SD_CSD_C_SIZE_MULT_V1_256) &&
+            (c_size_mult != SD_CSD_C_SIZE_MULT_V1_512)) {
+            return SD_CARD_ERROR;
+        }
+    } else {
+        c_size = sd_card_get_csd_field(csd, SD_CSD_C_SIZE_V2_START_BIT, SD_CSD_C_SIZE_V2_WIDTH);
+        if (((c_size < SD_CSD_C_SIZE_V2_SDHC_MIN) || (c_size > SD_CSD_C_SIZE_V2_SDHC_MAX)) &&
+            ((c_size < SD_CSD_C_SIZE_V2_SDXC_MIN) || (c_size > SD_CSD_C_SIZE_V2_SDXC_MAX))) {
+            return SD_CARD_ERROR;
+        }
+    }
+
+    if (csd_structure == SD_CSD_CSD_STRUCTURE_V1) {
+        card->block_count = (c_size + 1U) * (1U << (c_size_mult + 2U)) * (1U << (read_bl_len - 9U));
+        if (card->block_count > SD_SDSC_MAX_BLOCK_COUNT) {
+            return SD_CARD_ERROR;
+        }
+    } else {
+        card->block_count = (c_size + 1U) << (19U - 9U);
+    }
+
     card->block_size = SD_BLOCK_SIZE;
 
     switch (tran_speed) {
@@ -628,9 +740,23 @@ static sd_card_status_t sd_card_wait_transfer_ready(const sd_card_t *card)
             ((response[0] & SD_CMD13_RESP0_CARD_CURRENT_STATE_MASK) == SD_CMD13_RESP0_CARD_CURRENT_STATE_TRAN)) {
             break;
         }
+
+        if ((card->ops->sleep_ms != NULL) &&
+            ((tick - start_tick) >= SD_POLL_SLEEP_THRESHOLD_MS)) {
+            card->ops->sleep_ms(SD_TRANSFER_READY_SLEEP_MS);
+        }
     }
 
     return SD_CARD_OK;
+}
+
+static uint32_t sd_card_get_block_address(const sd_card_t *card, uint32_t block)
+{
+    if (card->capacity_type == SD_CARD_CAPACITY_TYPE_SDSC) {
+        return block * SD_BLOCK_SIZE;
+    }
+
+    return block;
 }
 
 sd_card_status_t sd_card_init(sd_card_t *card,
@@ -659,6 +785,9 @@ sd_card_status_t sd_card_init(sd_card_t *card,
 sd_card_status_t sd_card_probe(sd_card_t *card)
 {
     uint32_t response[4];
+    bool cmd8_responded;
+    uint32_t app_cmd_failures;
+    uint32_t op_cond_argument;
     uint32_t start_tick;
     uint32_t tick;
 
@@ -675,16 +804,26 @@ sd_card_status_t sd_card_probe(sd_card_t *card)
 
     if (sd_card_send_if_cond(card,
                              SD_CMD8_VHS_27_36 | SD_CMD8_CHECK_PATTERN,
-                             response) != SD_CARD_OK) {
-        return SD_CARD_ERROR;
-    } else {
+                             response) == SD_CARD_OK) {
         if ((response[0] & (SD_CMD8_RESP0_VHS_MASK | SD_CMD8_RESP0_CHECK_PATTERN_MASK)) !=
             (SD_CMD8_RESP0_VHS_27_36 | SD_CMD8_RESP0_CHECK_PATTERN)) {
             return SD_CARD_ERROR;
         }
+
+        cmd8_responded = true;
+    } else {
+        cmd8_responded = false;
+    }
+
+    op_cond_argument = SD_ACMD41_XPC_POWER_SAVING | SD_ACMD41_S18R_USE_CURRENT_SIGNAL_VOLTAGE | SD_ACMD41_VOLTAGE_ALL;
+    if (cmd8_responded == true) {
+        op_cond_argument |= SD_ACMD41_HCS_SDHC_SDXC;
+    } else {
+        op_cond_argument |= SD_ACMD41_HCS_SDSC;
     }
 
     start_tick = card->ops->get_tick_ms();
+    app_cmd_failures = 0U;
 
     for (;;) {
         tick = card->ops->get_tick_ms();
@@ -694,23 +833,32 @@ sd_card_status_t sd_card_probe(sd_card_t *card)
         }
 
         if (sd_card_send_app_cmd(card, 0U) != SD_CARD_OK) {
-            return SD_CARD_ERROR;
+            if (++app_cmd_failures >= SD_INITIALIZATION_APP_CMD_MAX_FAILURES) {
+                return SD_CARD_ERROR;
+            }
+
+            continue;
+        } else {
+            app_cmd_failures = 0U;
         }
 
-        if (sd_card_send_op_cond(card,
-                                 SD_ACMD41_HCS_SDHC_SDXC | SD_ACMD41_XPC_POWER_SAVING | SD_ACMD41_S18R_USE_CURRENT_SIGNAL_VOLTAGE | SD_ACMD41_VOLTAGE_ALL,
-                                 response) != SD_CARD_OK) {
-            return SD_CARD_ERROR;
-        } else {
-            if ((response[0] & SD_ACMD41_RESP0_BUSY_MASK) == SD_ACMD41_RESP0_BUSY_INITIALIZATION_COMPLETE) {
-                if ((response[0] & SD_ACMD41_RESP0_CSS_MASK) != SD_ACMD41_RESP0_CSS_SDHC_SDXC) {
-                    return SD_CARD_ERROR;
-                }
+        if (sd_card_send_op_cond(card, op_cond_argument, response) != SD_CARD_OK) {
+            continue;
+        }
 
-                card->ocr = response[0];
-
-                break;
+        if ((response[0] & SD_ACMD41_RESP0_BUSY_MASK) == SD_ACMD41_RESP0_BUSY_INITIALIZATION_COMPLETE) {
+            if ((response[0] & SD_ACMD41_VOLTAGE_ALL) == 0U) {
+                return SD_CARD_ERROR;
             }
+
+            card->ocr = response[0];
+
+            break;
+        }
+
+        if ((card->ops->sleep_ms != NULL) &&
+            ((tick - start_tick) >= SD_POLL_SLEEP_THRESHOLD_MS)) {
+            card->ops->sleep_ms(SD_INITIALIZATION_SLEEP_MS);
         }
     }
 
@@ -747,6 +895,22 @@ sd_card_status_t sd_card_probe(sd_card_t *card)
     if (sd_card_select_card(card,
                             (((uint32_t)card->rca) << SD_CMD7_RCA_POS) & SD_CMD7_RCA_MASK) != SD_CARD_OK) {
         return SD_CARD_ERROR;
+    }
+
+    if ((card->ocr & SD_ACMD41_RESP0_CCS_MASK) == SD_ACMD41_RESP0_CCS_SDHC_SDXC) {
+        if (card->block_count <= SD_SDHC_MAX_BLOCK_COUNT) {
+            card->capacity_type = SD_CARD_CAPACITY_TYPE_SDHC;
+        } else {
+            card->capacity_type = SD_CARD_CAPACITY_TYPE_SDXC;
+        }
+    } else {
+        card->capacity_type = SD_CARD_CAPACITY_TYPE_SDSC;
+    }
+
+    if (card->capacity_type == SD_CARD_CAPACITY_TYPE_SDSC) {
+        if (sd_card_set_blocklen(card, SD_BLOCK_SIZE) != SD_CARD_OK) {
+            return SD_CARD_ERROR;
+        }
     }
 
     card->state = SD_CARD_STATE_READY;
@@ -815,6 +979,7 @@ sd_card_status_t sd_card_config_bus_width(const sd_card_t *card,
 
 sd_card_status_t sd_card_config_high_speed(sd_card_t *card)
 {
+    uint32_t ccc;
     uint8_t status[SD_CMD6_STATUS_BYTE_SIZE];
 
     if (card == NULL) {
@@ -822,6 +987,11 @@ sd_card_status_t sd_card_config_high_speed(sd_card_t *card)
     }
 
     if (card->state != SD_CARD_STATE_READY) {
+        return SD_CARD_ERROR;
+    }
+
+    ccc = sd_card_get_csd_field(card->csd, SD_CSD_CCC_START_BIT, SD_CSD_CCC_WIDTH);
+    if ((ccc & SD_CSD_CCC_SWITCH) != SD_CSD_CCC_SWITCH) {
         return SD_CARD_ERROR;
     }
 
@@ -882,6 +1052,19 @@ sd_card_state_t sd_card_get_state(const sd_card_t *card)
     }
 
     return card->state;
+}
+
+sd_card_capacity_type_t sd_card_get_capacity_type(const sd_card_t *card)
+{
+    if (card == NULL) {
+        return SD_CARD_CAPACITY_TYPE_UNKNOWN;
+    }
+
+    if (card->state != SD_CARD_STATE_READY) {
+        return SD_CARD_CAPACITY_TYPE_UNKNOWN;
+    }
+
+    return card->capacity_type;
 }
 
 uint32_t sd_card_get_block_size(const sd_card_t *card)
@@ -959,9 +1142,9 @@ sd_card_status_t sd_card_read_blocks(const sd_card_t *card,
     }
 
     if (is_multiple != false) {
-        ret = sd_card_read_multiple_block(card, block_start);
+        ret = sd_card_read_multiple_block(card, sd_card_get_block_address(card, block_start));
     } else {
-        ret = sd_card_read_single_block(card, block_start);
+        ret = sd_card_read_single_block(card, sd_card_get_block_address(card, block_start));
     }
 
     if (ret != SD_CARD_OK) {
@@ -1031,9 +1214,9 @@ sd_card_status_t sd_card_write_blocks(const sd_card_t *card,
             (void)sd_card_set_wr_blk_erase_count(card,
                                                  (block_count << SD_ACMD23_NUMBER_OF_BLOCKS_POS) & SD_ACMD23_NUMBER_OF_BLOCKS_MASK);
         }
-        ret = sd_card_write_multiple_block(card, block_start);
+        ret = sd_card_write_multiple_block(card, sd_card_get_block_address(card, block_start));
     } else {
-        ret = sd_card_write_block(card, block_start);
+        ret = sd_card_write_block(card, sd_card_get_block_address(card, block_start));
     }
 
     if (ret != SD_CARD_OK) {

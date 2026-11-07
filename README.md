@@ -1,30 +1,31 @@
 # sd-card
 
-SD memory card protocol layer for controllers with an SDIO-style host (command register, response registers, block data path). C99, no OS, no HAL, no dynamic allocation, no writable static data.
+SD memory card protocol layer for controllers with an SDIO-style host (command register, response registers, block data path). C99, no OS dependency, no HAL, no dynamic allocation, no writable static data.
 
-The library owns the protocol: the initialisation command sequence (CMD0, CMD8, ACMD41, CMD2, CMD3, CMD9, CMD7), bus-width switching (CMD55/ACMD6), high-speed function selection (CMD6), CSD decoding, and single/multi-block read and write with CMD12/CMD13 handling. You own the transport: an eight-function ops table over whatever SDIO controller your part provides, bound to the card once with `sd_card_init()`, plus pin muxing, power, clock start-up and card detection, which the library never touches.
+The library owns the protocol: the initialisation command sequence (CMD0, CMD8, CMD55/ACMD41, CMD2, CMD3, CMD9, CMD7, plus CMD16 for SDSC), bus-width switching (CMD55/ACMD6), high-speed function selection (CMD6), CSD decoding, and single/multi-block read and write with CMD12/CMD13 handling. You own the transport: seven host operations and a required millisecond clock, plus an optional `sleep_ms` hook for task scheduling. The nine-entry ops table is bound once with `sd_card_init()`. Pin muxing, power, clock start-up and card detection remain outside the library.
 
 ## Scope
 
 Supported:
 
-- SD initialisation and identification (MMC is not attempted), 1-bit and 4-bit bus, clock up to the ceiling the card declares in its CSD, or up to 50 MHz once `sd_card_config_high_speed()` has selected the high-speed function.
-- Single and multi-block read (CMD17/CMD18 + CMD12) and write (CMD24/CMD25 + ACMD23 + CMD12), with CMD13 `READY_FOR_DATA` polling before and after a write.
-- CSD v2 capacity decoding.
+- SDSC, SDHC and SDXC initialisation and identification, including pre-2.00 SD cards that do not answer CMD8. MMC initialisation is not attempted.
+- 1-bit and 4-bit bus, with a successful `sd_card_config_high_speed()` selecting a 50 MHz ceiling. The host supplies the actual clock at or below the requested frequency.
+- Single and multi-block read (CMD17/CMD18 + CMD12) and write (CMD24/CMD25 + best-effort ACMD23 + CMD12), with CMD13 `READY_FOR_DATA` polling before and after a write.
+- CSD v1 and v2 capacity decoding, cross-checked against OCR `CCS`. SDSC uses byte-addressed commands after CMD16 sets a 512-byte block length; SDHC/SDXC uses block-addressed commands. The public read/write API always takes 512-byte block numbers.
+- `sd_card_get_capacity_type()` reports `UNKNOWN`, `SDSC`, `SDHC` or `SDXC`; SDHC and SDXC are distinguished by the decoded capacity.
 
-Not supported, by design:
+Current limits and unsupported features:
 
-- Standard Capacity cards (CSD v1, up to 2 GB): `sd_card_probe()` rejects them with `SD_CARD_ERROR`; the status enum has no separate code for an unsupported card ([doc/porting.md](doc/porting.md) maps every failure to its return code). The block count is computed with the SDHC/SDXC formula only.
-- Bus widths other than 1 and 4 bit (no 8-bit), DDR, and 1.8 V signalling (ACMD41 is sent with `S18R = 0`). CMD6 selects only the high-speed function, never a UHS one, so 50 MHz is as fast as this library asks; the higher `TRAN_SPEED` bands belong to signalling it does not enter.
-- Cards whose CSD `TRAN_SPEED` is not one of the four codes the library recognises (25, 50, 100 or 200 MHz): `sd_card_probe()` returns `SD_CARD_ERROR` instead of assuming a speed.
-- Voltage ranges outside 2.7-3.6 V (CMD8 and ACMD41 both request that window only).
-- CMD16 (block length stays at the power-on value of 512 bytes), so block numbers are used directly as command arguments; valid for SDHC/SDXC.
-- Card removal, power cycling, erase (CMD35/CMD38), write protection (CMD28/CMD29), CID decoding, and file systems.
+- SDSC capacity is capped at **2028 MiB** (4,153,344 blocks) by the current implementation. CSD v1 read/write block-length fields must match and encode 512, 1024 or 2048 bytes; the exposed block size is always 512 bytes. See [doc/porting.md](doc/porting.md) for the accepted CSD v2 capacity ranges.
+- Bus widths other than 1 and 4 bit (no 8-bit), DDR, and 1.8 V signalling (ACMD41 is sent with `S18R = 0`). CMD6 selects only the high-speed function, never UHS. Decoding a higher `TRAN_SPEED` does not enable that signalling mode.
+- Unrecognised CSD `TRAN_SPEED` codes: CSD v1 accepts 25 or 50 MHz; CSD v2 accepts 25, 50, 100 or 200 MHz. Other codes produce `SD_CARD_ERROR` instead of an assumed speed. There is no automatic clock fallback after a transfer failure.
+- Voltage ranges outside 2.7-3.6 V (CMD8 and ACMD41 request that window only).
+- Card removal, power cycling, explicit erase (CMD32/CMD33/CMD38), write protection (CMD28/CMD29), CID decoding, and file systems.
 
 ## Requirements
 
 - C99 and `<stdint.h>`, `<stdbool.h>`, `<stddef.h>`, `<string.h>`. Nothing else: the library includes no CMSIS, device or OS header. Only `sd_card_config_high_speed()` reaches for the C library, to clear the 64-byte switch status on the stack before each CMD6 exchange.
-- One caller-owned `sd_card_t` per card (60 bytes on a 32-bit target: nine fields, the `uint16_t rca` followed by two bytes of padding).
+- One caller-owned `sd_card_t` per card (64 bytes with 32-bit pointers and enums: ten fields, the `uint16_t rca` followed by two bytes of padding). The nine-pointer `sd_card_ops_t` occupies 36 bytes on that target and must remain valid while bound.
 - The block size is fixed at 512 bytes. The library imposes no alignment requirement on your buffer, but your DMA engine probably does.
 
 ## Quick start
@@ -45,12 +46,13 @@ static const sd_card_ops_t host_ops = {
     .host_read                = my_read,
     .host_write               = my_write,
     .get_tick_ms              = my_get_tick_ms,
+    .sleep_ms                 = NULL,
 };
 
 /* Before probing: power the card, mux the pins, and start the host clock at
    no more than 400 kHz in 1-bit mode. The library does not do any of that. */
 if (sd_card_init(&card, &host_ops) != SD_CARD_OK) {
-    /* A NULL entry in the table, or a NULL card pointer. */
+    /* A NULL card/table pointer or a missing required callback; sleep_ms may be NULL. */
 }
 
 if (sd_card_probe(&card) != SD_CARD_OK) {
@@ -59,11 +61,13 @@ if (sd_card_probe(&card) != SD_CARD_OK) {
 
 sd_card_config_bus_width(&card, SD_CARD_BUS_WIDTH_4B);
 
-/* Optional. A card that has no high-speed function, or refuses the switch,
-   leaves max_clock_frequency at its CSD value and stays on the slower clock. */
-(void)sd_card_config_high_speed(&card);
+/* Stay at default speed unless the high-speed switch is confirmed. */
+uint32_t clock_frequency = SD_CARD_CLOCK_FREQUENCY_25000000HZ;
+if (sd_card_config_high_speed(&card) == SD_CARD_OK) {
+    clock_frequency = sd_card_get_max_clock_frequency(&card);
+}
 
-sd_card_config_clock_frequency(&card, sd_card_get_max_clock_frequency(&card));
+sd_card_config_clock_frequency(&card, clock_frequency);
 
 uint8_t sector[512];
 sd_card_read_blocks(&card, sector, 0U, 1U);
@@ -73,15 +77,35 @@ sd_card_read_blocks(&card, sector, 0U, 1U);
 
 ## Timing
 
-Every timeout loop in this library is a busy wait with no yield hook, issuing commands back to back: card initialisation runs for up to 1000 ms, and each `READY_FOR_DATA` poll for up to 1000 ms. A write polls twice, once before the data and once after it, so a single `sd_card_write_blocks()` call can spin for 2000 ms. Calling `sd_card_probe()` from a task therefore blocks that priority level for the whole initialisation, and calling it from an interrupt is a bad idea on any system with a shorter tick. Put it in its own task, or drive it from a low-priority context. The library provides no cancellation: if the card never signals busy-complete, the loop runs until the timeout and returns `SD_CARD_ERROR`.
+`get_tick_ms` measures elapsed time; the optional `sleep_ms` gives an RTOS port a place to block the calling task and let other tasks run. They are separate services: requested sleep durations cannot account for host-command time or scheduling delays, so the time source remains required.
+
+| Polling loop | Timeout | Requested sleep after the threshold |
+| --- | --- | --- |
+| CMD55/ACMD41 initialisation | 1000 ms | 10 ms |
+| CMD13 transfer-ready, before and after a write | 1000 ms per wait | 1 ms |
+
+A ready response returns immediately. For a successful but not-ready response, sleeping starts only when the elapsed millisecond count reaches `SD_POLL_SLEEP_THRESHOLD_MS` (2 ms). With a clock that advances every millisecond, this avoids sleeping after merely crossing the first tick boundary and gives short waits at least about 1 ms of continuous polling. It is a latency/CPU-use trade-off, not a protocol requirement or a fixed delay on every call. If `sleep_ms` is `NULL`, both loops remain busy waits.
+
+Probe returns `SD_CARD_ERROR` after eight consecutive failed CMD55 calls; a successful CMD55 resets the count even if the following ACMD41 fails. This budget applies only during initialisation. Failed CMD55/ACMD41 calls skip the sleep hook; successful ACMD41 replies that still report busy can use it. A CMD8 failure alone is not a missing-card test. A board with card detection should avoid probing a known-empty socket; without that, exit time depends on the host's command timeouts as well as the failure budget.
+
+Timeouts are checked between commands, not enforced by preempting a host operation or a sleeping task. Host callbacks need their own bounded waits, and scheduling can delay the return past a deadline. There is no cancellation or built-in locking: use task/main-loop context, never an interrupt, and serialize access to a shared card and host. See [doc/porting.md](doc/porting.md#sleep_msms) before supplying a blocking hook.
 
 ## Porting
 
-See [doc/porting.md](doc/porting.md) for the contract of each ops entry, including the two ordering rules that a naive host implementation gets wrong (`host_prepare_read` runs before the read command is issued; `host_read`/`host_write` return only after the data has reached or left the card), and the trap in `get_tick_ms` that a port is most likely to fall into. [examples/sd_card_host_template.c](examples/sd_card_host_template.c) is a non-functional skeleton with all eight signatures and the expectations as comments.
+See [doc/porting.md](doc/porting.md) for the contract of each ops entry, including the data-path ordering rules, the independent `get_tick_ms` time source, and the optional `sleep_ms` scheduling hook. [examples/sd_card_host_template.c](examples/sd_card_host_template.c) is a non-functional skeleton with all eight required callbacks and an explicit `.sleep_ms = NULL`.
 
 ## Size
 
-Measured with GNU arm-none-eabi-gcc 12.3 (`-std=c99 -O2 -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard`), reading `arm-none-eabi-size -A` on `sd_card.o`: 1688 bytes of `.text`, zero `.data`, zero `.bss`, and no `.rodata` section at all. The 252 bytes over 0.2.1 are the two CMD6 exchanges and the status decode; the 1436 of 0.2.1 was re-measured from the `v0.2.1` tag with these same flags rather than quoted from its note, and neither build emits a `.rodata`, so the `memset()` length costs nothing in read-only data. The 0.1.0 figures (1890 bytes of code and 184 of read-only data, armclang 6.24, two objects) were measured before the refactor, included the now-deleted `sd_card_host.c`, and do not carry over.
+Measured for 0.3.0 with armclang 6.24 (`--target=arm-arm-none-eabi -std=c99 -O2 -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard`), using `fromelf --text -z` on `sd_card.o`:
+
+| Component | Bytes |
+| --- | ---: |
+| Code | 2312 |
+| RO Data | 120 |
+| RW Data | 0 |
+| ZI Data | 0 |
+
+These are object-file figures, not the final linked firmware size. The earlier 1688-byte GCC measurement belongs to 0.2.3 and was not repeated for this release; it is not a like-for-like size comparison. The strict warning set from `build.sh` passes with armclang 6.24. The historical GCC `-Wconversion` diagnostics in `sd_card_get_csd_field()` have not been rechecked with GCC.
 
 The absence of writable statics is structural: all state lives in the caller-owned `sd_card_t`, and the bound ops table is caller-owned `const` data. The library itself is therefore reentrant per card, but the table carries no context pointer, so a port that keeps its host state in file scope serves one card at a time.
 
@@ -98,7 +122,9 @@ There is no build system: drop `src/` into your project and add `sd_card.c`. To 
 
 ## Status
 
-0.2.3. The code is extracted from an in-tree component of a MH2457 (Cortex-M4) firmware, where it ran against real SDHC cards over a 4-bit SDIO host. The high-speed switch is the same CMD6 exchange that firmware used, so it has been exercised on four cards at 48 MHz — but only ever against that one host, and no second host port exists yet, which is the main thing standing between this and a 1.0.0. [CHANGELOG.md](CHANGELOG.md) lists the known gaps.
+0.3.0. Firmware-level regression testing on the MH2457 (Cortex-M4) 4-bit SDIO host covers nominal 512 MB, 1 GB and 2 GB SDSC cards and 8 GB and 32 GB SDHC cards: 20/20 repeated initialisations per card, boundary and multi-block reads, raw-block write/readback/restore, and FatFs file verification across re-probing. The sleep hook was exercised with that RTOS port; these tests do not measure CPU availability to a second application task.
+
+SDXC decoding is implemented, but SDXC hardware validation, a second host port and mock-based automated tests remain outstanding. Clock compatibility is card- and host-dependent, and there is no automatic retry at a lower clock. [CHANGELOG.md](CHANGELOG.md) lists the remaining gaps.
 
 ## License
 

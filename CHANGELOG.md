@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.3.0
+
+SDSC support, explicit capacity classes, bounded initialisation retries and an optional task-sleep hook. The protocol layer remains independent of any OS or host implementation.
+
+### Protocol and API
+
+- `sd_card_probe()` accepts a failed CMD8 exchange so pre-2.00 SD cards can continue to CMD55/ACMD41. A successful CMD8 reply must still echo the requested voltage and check pattern. ACMD41 sets HCS only after a valid CMD8 reply; MMC initialisation is not added.
+- CSD v1 capacity decoding is added alongside v2, with a CSD-structure/OCR-CCS consistency check. SDSC accepts matching read/write block-length fields of 512, 1024 or 2048 bytes. CMD16(512) is sent after selection for SDSC, and a reported command failure fails the probe.
+- Both read and write paths convert SDSC block numbers to byte addresses for CMD17/18/24/25. SDHC/SDXC command arguments remain block numbers. Public block size and API units remain 512 bytes for every capacity class.
+- `sd_card_capacity_type_t`, `sd_card_t.capacity_type` and `sd_card_get_capacity_type()` distinguish `UNKNOWN`, `SDSC`, `SDHC` and `SDXC`. The getter returns `UNKNOWN` for a NULL or non-ready card; reset clears the stored type. The internal OCR bit name is corrected from `CSS` to `CCS`.
+- High-speed configuration checks CSD CCC bit 10 before sending CMD6. A card without the switch-function class returns `SD_CARD_ERROR` without sending CMD6.
+- Initialisation stops after eight consecutive CMD55 failures. A successful CMD55 clears the counter even if the following ACMD41 fails. The failure budget applies only to probe; the 1000 ms initialisation timeout is retained.
+- `sd_card_ops_t.sleep_ms(uint32_t ms)` is optional. A non-ready reply can call it after the elapsed count reaches the 2 ms polling threshold: 10 ms per initialisation sleep, 1 ms per transfer-ready sleep. Ready replies do not sleep, and failed CMD55/ACMD41 calls skip the hook. NULL preserves busy polling. The required `get_tick_ms` remains the independent clock for thresholds and timeouts.
+
+### Port migration
+
+- Recompile users of both public structures: with 32-bit pointers and enums, `sd_card_t` grows from 60 to 64 bytes and `sd_card_ops_t` from 32 to 36 bytes.
+- Initialise the new `sleep_ms` member explicitly to a callback or NULL. A designated aggregate initializer that omits it zero-initialises it; code that assigns the old fields individually must also assign the new field.
+- A blocking hook requires task context with scheduling available. It does not make the library asynchronous or add locking; callers must serialize access to a shared card and host. `get_tick_ms` must keep advancing during host waits and sleeps.
+- The README, porting guide and host template describe the new probe sequence, addressing, capacity getter and sleep contract. The template leaves `sleep_ms` NULL and introduces no RTOS dependency.
+
+### Validation and remaining limits
+
+- Firmware regression tests on the MH2457 SDIO host cover nominal 512 MB, 1 GB and 2 GB SDSC, plus 8 GB and 32 GB SDHC: repeated identification at 20/20 per card, boundary/multi-block reads, raw-block write/readback/restore, and FatFs verification across re-probing. SDXC hardware and a second host port remain unverified; no mock-based automated suite is included.
+- The current SDSC capacity ceiling is 2028 MiB. CSD v1 accepts only 25/50 MHz `TRAN_SPEED` codes; CSD v2 retains its existing accepted codes and capacity ranges. There is no UHS/1.8 V mode, automatic clock fallback, card-detect implementation or explicit erase API.
+- The CCC check does not add SCR `SD_SPEC` decoding or higher-power negotiation for CMD6. These remain limitations.
+- armclang 6.24 passes the `build.sh` warning set for the library and example. At `-O2` for Cortex-M4, `fromelf --text -z` reports Code 2312 bytes, RO Data 120, RW Data 0 and ZI Data 0 for `sd_card.o`. The previous GCC footprint and `-Wconversion` findings were not re-measured with GCC.
+
 ## 0.2.3
 
 Loop spelling only. The two timeout loops in `sd_card_probe()` and `sd_card_wait_transfer_ready()` are written `for (;;)` where they were `while (true)`; each already left by its own `break` or `return`, so the 1000 ms windows and every return value are what they were in 0.2.2.

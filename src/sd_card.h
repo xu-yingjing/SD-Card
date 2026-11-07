@@ -40,7 +40,14 @@ typedef struct {
     sd_card_status_t (*host_read)(uint8_t *buffer, uint32_t size);
     sd_card_status_t (*host_write)(const uint8_t *buffer, uint32_t size);
     uint32_t (*get_tick_ms)(void);
+    void (*sleep_ms)(uint32_t ms);
 } sd_card_ops_t;
+
+typedef enum {
+    SD_CARD_BUS_WIDTH_1B = 0U,
+    SD_CARD_BUS_WIDTH_4B,
+    SD_CARD_BUS_WIDTH_COUNT,
+} sd_card_bus_width_t;
 
 typedef enum {
     SD_CARD_STATE_NO_CARD = 0U,
@@ -48,10 +55,11 @@ typedef enum {
 } sd_card_state_t;
 
 typedef enum {
-    SD_CARD_BUS_WIDTH_1B = 0U,
-    SD_CARD_BUS_WIDTH_4B,
-    SD_CARD_BUS_WIDTH_COUNT,
-} sd_card_bus_width_t;
+    SD_CARD_CAPACITY_TYPE_UNKNOWN = 0U,
+    SD_CARD_CAPACITY_TYPE_SDSC,
+    SD_CARD_CAPACITY_TYPE_SDHC,
+    SD_CARD_CAPACITY_TYPE_SDXC,
+} sd_card_capacity_type_t;
 
 enum {
     SD_CARD_CLOCK_FREQUENCY_25000000HZ = 25000000U,
@@ -67,6 +75,7 @@ typedef struct {
     uint32_t cid[4];
     uint16_t rca;
     uint32_t csd[4];
+    sd_card_capacity_type_t capacity_type;
     uint32_t block_size;
     uint32_t block_count;
     uint32_t max_clock_frequency;
@@ -88,6 +97,8 @@ sd_card_status_t sd_card_config_clock_frequency(const sd_card_t *card,
                                                 uint32_t clock_frequency);
 
 sd_card_state_t sd_card_get_state(const sd_card_t *card);
+
+sd_card_capacity_type_t sd_card_get_capacity_type(const sd_card_t *card);
 
 uint32_t sd_card_get_block_size(const sd_card_t *card);
 
